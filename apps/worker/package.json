@@ -1,0 +1,23 @@
+{
+  "name": "@postgavel/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "wrangler types && tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply postgavel --local",
+    "db:migrate:remote": "wrangler d1 migrations apply postgavel --remote"
+  },
+  "dependencies": {
+    "drizzle-orm": "latest",
+    "hono": "^4"
+  },
+  "devDependencies": {
+    "drizzle-kit": "latest",
+    "typescript": "^5",
+    "wrangler": "^4"
+  }
+}

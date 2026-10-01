@@ -1,0 +1,18 @@
+{
+  "name": "@postgavel/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5",
+    "typescript": "^5",
+    "vite": "^7"
+  }
+}

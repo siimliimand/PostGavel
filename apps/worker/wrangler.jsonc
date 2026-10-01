@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "postgavel",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "postgavel",
+      "database_id": "5df76370-25ca-46df-ae92-e586c923cdd5",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}

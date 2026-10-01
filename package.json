@@ -1,0 +1,17 @@
+{
+  "name": "postgavel",
+  "private": true,
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -C apps/web build && pnpm -C apps/worker dev",
+    "build": "pnpm -C apps/worker typecheck && pnpm -C apps/web build",
+    "deploy": "pnpm build && pnpm -C apps/worker deploy",
+    "types": "pnpm -C apps/worker types",
+    "db:generate": "pnpm -C apps/worker db:generate",
+    "db:migrate": "pnpm -C apps/worker db:migrate",
+    "db:migrate:remote": "pnpm -C apps/worker db:migrate:remote"
+  }
+}
