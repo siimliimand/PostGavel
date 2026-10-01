@@ -9,6 +9,7 @@ export default function ProjectSubNav({ id }: { id: string }) {
   const items = [
     { to: `/projects/${id}`, label: "Brief" },
     { to: `/projects/${id}/ai-config`, label: "AI config" },
+    { to: `/projects/${id}/prompts`, label: "Prompts" },
   ];
   return (
     <nav className="subnav" aria-label="Project sections">

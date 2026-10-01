@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import AiConfigPage from "./pages/AiConfigPage";
 import ProjectBriefPage from "./pages/ProjectBriefPage";
+import PromptsPage from "./pages/PromptsPage";
 import ProjectsListPage from "./pages/ProjectsListPage";
 import { Link, navigate, RouterProvider, useRoute } from "./router";
 
@@ -56,6 +57,13 @@ function Routes() {
       return (
         <Screen>
           <AiConfigPage id={segments[1]} />
+        </Screen>
+      );
+    }
+    if (segments.length === 3 && segments[2] === "prompts") {
+      return (
+        <Screen>
+          <PromptsPage id={segments[1]} />
         </Screen>
       );
     }

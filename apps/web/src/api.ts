@@ -104,3 +104,52 @@ export type TestConnectionResult = {
   latency_ms: number;
   sample: string;
 };
+
+// Prompt templates: global defaults + per-project overrides (plan §6).
+
+export type PromptTemplate = {
+  key: string;
+  name: string;
+  /** Variable names extracted from the default body, first-appearance order. */
+  variables: string[];
+  default_body: string;
+  override_body: string | null;
+  /** Effective body: override ?? default. */
+  body: string;
+  is_override: boolean;
+};
+
+export type ResolvedPrompt = {
+  key: string;
+  name: string;
+  /** Effective body with {{variables}} substituted from the project brief. */
+  text: string;
+  /** Human-readable warnings, e.g. unknown variables left unresolved. */
+  warnings: string[];
+};
+
+export function fetchPrompts(projectId: string): Promise<PromptTemplate[]> {
+  return fetchJson<PromptTemplate[]>(`/api/projects/${projectId}/prompts`);
+}
+
+export function updatePrompt(
+  projectId: string,
+  key: string,
+  body: string,
+): Promise<PromptTemplate> {
+  return fetchJson<PromptTemplate>(`/api/projects/${projectId}/prompts/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ body }),
+  });
+}
+
+/** Deletes the override; the prompt falls back to the global default (204). */
+export async function resetPrompt(projectId: string, key: string): Promise<void> {
+  await fetchJson<null>(`/api/projects/${projectId}/prompts/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchResolvedPrompts(projectId: string): Promise<ResolvedPrompt[]> {
+  return fetchJson<ResolvedPrompt[]>(`/api/projects/${projectId}/prompts/resolved`);
+}

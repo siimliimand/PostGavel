@@ -288,3 +288,86 @@ h2 {
   background: rgba(255, 255, 255, 0.6);
   font-size: 0.85em;
 }
+
+/* Prompts page */
+.modified-badge {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #b45309;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prompt-meta {
+  margin: -0.5rem 0 0.75rem;
+}
+
+.prompt-key {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #f1f3f6;
+  font-size: 0.8rem;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+}
+
+.chip {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.75rem;
+}
+
+.field textarea.prompt-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.char-count {
+  display: flex;
+  justify-content: flex-end;
+  margin: -0.5rem 0 0.75rem;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
+.char-count.over {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.default-details {
+  margin-top: 0.9rem;
+}
+
+.default-details summary {
+  color: #4f46e5;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.default-details pre {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 6px;
+  background: #f9fafb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

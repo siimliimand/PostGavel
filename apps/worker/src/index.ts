@@ -5,6 +5,7 @@ import { aiConfigRoutes } from "./routes/aiConfig";
 import { CodedHTTPException } from "./routes/errors";
 import { memberRoutes } from "./routes/members";
 import { metaRoutes } from "./routes/meta";
+import { promptRoutes } from "./routes/prompts";
 import { projectRoutes } from "./routes/projects";
 
 const app = new Hono<AppEnv>();
@@ -42,6 +43,7 @@ api.get("/me", (c) => {
 api.route("/projects", projectRoutes);
 api.route("/projects", memberRoutes);
 api.route("/projects", aiConfigRoutes);
+api.route("/projects", promptRoutes);
 api.route("/meta", metaRoutes);
 
 app.route("/api", api);
