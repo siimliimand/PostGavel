@@ -13,12 +13,30 @@ import { CodedHTTPException } from "./errors";
 // Field caps (documented in README's API section).
 const MAX_NAME = 200;
 const MAX_TEXT_FIELD = 10_000;
+const MAX_TONE = 100;
+const MAX_AUDIENCE_DESCRIPTION = 500;
+const MAX_GUIDELINE_RULE = 2000;
+const MAX_CONTENT_TYPE = 40;
+const MAX_CONTENT_TYPES = 12;
 const MAX_EMAIL = 320;
 const MAX_API_KEY = 512;
 const MAX_MODEL = 256;
 const MAX_MODEL_ENTRIES = 32;
 const MAX_PROMPT_BODY = 20_000;
 const MAX_TOPIC_HINT = 500;
+
+/** Audience expertise levels (Phase 8 brief). Stored verbatim in D1. */
+export const AUDIENCE_EXPERTISE = ["beginners", "general", "practitioners", "experts"] as const;
+
+/** Trimmed string (min..max) or null — null clears the field. */
+function nullableText(label: string, max: number, min = 0) {
+  return z
+    .string()
+    .trim()
+    .min(min, `${label} must be a non-empty string when provided`)
+    .max(max, `${label} must be at most ${max} characters`)
+    .nullable();
+}
 
 /** Join zod issues as "path: message" with "; " — friendly, no zod jargon. */
 function formatIssues(error: z.ZodError): string {
@@ -99,15 +117,39 @@ export const updateProjectSchema = z
       .trim()
       .max(MAX_TEXT_FIELD, `content_guidelines must be at most ${MAX_TEXT_FIELD} characters`)
       .optional(),
+    // Phase 8: content_types arrives as a string array (canonical format); the
+    // route dedupes case-insensitively (order-preserving) and stores it
+    // comma-joined. Empty array = clear.
     content_types: z
-      .string()
-      .trim()
-      .max(MAX_TEXT_FIELD, `content_types must be at most ${MAX_TEXT_FIELD} characters`)
+      .array(
+        z
+          .string()
+          .trim()
+          .min(1, "content_types entries must be non-empty strings")
+          .max(MAX_CONTENT_TYPE, `each content type must be at most ${MAX_CONTENT_TYPE} characters`),
+      )
+      .max(MAX_CONTENT_TYPES, `content_types must contain at most ${MAX_CONTENT_TYPES} entries`)
       .optional(),
+    // New brief fields: string (or null to clear) when provided; a missing key
+    // leaves the stored value untouched. tone is 1..100 per the field spec —
+    // clearing happens via null, not "".
+    tone: nullableText("tone", MAX_TONE, 1).optional(),
+    audience_expertise: z
+      .enum(AUDIENCE_EXPERTISE, {
+        message: `audience_expertise must be one of: ${AUDIENCE_EXPERTISE.join(", ")}`,
+      })
+      .nullable()
+      .optional(),
+    audience_description: nullableText("audience_description", MAX_AUDIENCE_DESCRIPTION).optional(),
+    guidelines_always: nullableText("guidelines_always", MAX_GUIDELINE_RULE).optional(),
+    guidelines_never: nullableText("guidelines_never", MAX_GUIDELINE_RULE).optional(),
   })
   .refine(
     (fields) => Object.keys(fields).length > 0,
-    { message: "No updatable fields provided (name, description, content_guidelines, content_types)" },
+    {
+      message:
+        "No updatable fields provided (name, description, content_guidelines, content_types, tone, audience_expertise, audience_description, guidelines_always, guidelines_never)",
+    },
   );
 
 export const addMemberSchema = z.object({

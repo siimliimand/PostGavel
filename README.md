@@ -3,8 +3,9 @@
 A simple AI content workspace: create **projects**, describe what each one is
 about, configure **OpenRouter** (API key + which model does which task), tune
 **every prompt**, and generate **long-form article ideas** — all on Cloudflare.
-Status: **phases 0–7 complete** (scaffold → schema/tenancy → brief → AI config
-→ prompts → idea generation → hardening → email + password authentication).
+Status: **phases 0–8 complete** (scaffold → schema/tenancy → brief → AI config
+→ prompts → idea generation → hardening → email + password authentication →
+structured brief).
 See [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Stack
@@ -77,8 +78,13 @@ applied (step 3) → `ENCRYPTION_KEY` secret set (step 4). Changing
 
 ## Using the app
 
-1. **Create a project** on `/projects`, then fill in the brief (what it's
-   about, content guidelines, content types) — these feed the prompt variables.
+1. **Create a project** on `/projects`, then fill in the brief. It is
+   structured: **About** (name + what it's about), **Audience & voice** (tone
+   presets or a custom tone, audience expertise level, audience description),
+   **Rules** (always/never include), and **Formats** — content-type chips
+   (Blog post, SEO article, Newsletter, … or add your own, up to 12) plus a
+   free-form "Additional notes" field. Everything here is injected into the
+   prompt variables (`Tone of voice: Professional`, `Always include: …`).
 2. **AI config** (`/projects/:id/ai-config`): paste your OpenRouter API key
    (stored encrypted, shown only as a `…last4` hint), pick a model per task,
    and use **Test connection**.
@@ -152,7 +158,7 @@ otherwise `404` (no existence leak) / `403`.
 | `GET /api/projects` | — | — |
 | `POST /api/projects` | `{ name }` (1–200 chars) | `ValidationError` |
 | `GET /api/projects/:id` | — | — |
-| `PUT /api/projects/:id` | any of `{ name, description, content_guidelines, content_types }` | `ValidationError` |
+| `PUT /api/projects/:id` | any of `{ name, description, content_guidelines, content_types[], tone, audience_expertise, audience_description, guidelines_always, guidelines_never }` (new fields: string, or null to clear; `content_types` = ≤12 strings ≤40 chars, deduped, stored comma-joined, `[]` clears; `tone` 1–100; `audience_description` ≤500; `guidelines_always`/`guidelines_never` ≤2000; `audience_expertise` = `beginners`\|`general`\|`practitioners`\|`experts`) | `ValidationError` |
 | `DELETE /api/projects/:id` | — | owner only |
 | `GET /api/projects/:id/members` | — | — (rows carry `registered: false` for invited, not-yet-registered emails) |
 | `POST /api/projects/:id/members` | `{ email, role: "owner"\|"editor" }` | `ValidationError`; `409` already a member |

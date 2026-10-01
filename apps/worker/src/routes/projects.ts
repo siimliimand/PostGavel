@@ -21,7 +21,38 @@ projectRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 type ProjectRow = typeof projects.$inferSelect;
 
-// API shape is snake_case, matching the column names in plan §3.
+// Brief fields that may be updated via PUT, after zod validation.
+type ProjectUpdateFields = Pick<
+  ProjectRow,
+  | "name"
+  | "description"
+  | "contentGuidelines"
+  | "contentTypes"
+  | "tone"
+  | "audienceExpertise"
+  | "audienceDescription"
+  | "guidelinesAlways"
+  | "guidelinesNever"
+>;
+
+// Canonical storage format for content types: comma-joined. Deduped
+// case-insensitively (first occurrence wins) so "SEO article" and
+// "seo article" can't both land in the list; order is preserved.
+function joinContentTypes(types: string[]): string {
+  const seen = new Set<string>();
+  return types
+    .filter((type) => {
+      const key = type.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join(",");
+}
+
+// API shape is snake_case, matching the column names in plan §3. content_types
+// is exposed as a string array (split on comma) — the UI is the only consumer
+// and the canonical format going forward (Phase 8).
 function projectJson(p: ProjectRow) {
   return {
     id: p.id,
@@ -29,7 +60,12 @@ function projectJson(p: ProjectRow) {
     name: p.name,
     description: p.description,
     content_guidelines: p.contentGuidelines,
-    content_types: p.contentTypes,
+    content_types: p.contentTypes ? p.contentTypes.split(",") : [],
+    tone: p.tone,
+    audience_expertise: p.audienceExpertise,
+    audience_description: p.audienceDescription,
+    guidelines_always: p.guidelinesAlways,
+    guidelines_never: p.guidelinesNever,
     created_at: p.createdAt,
     updated_at: p.updatedAt,
   };
@@ -59,6 +95,11 @@ projectRoutes.post("/", async (c) => {
     description: null,
     contentGuidelines: null,
     contentTypes: null,
+    tone: null,
+    audienceExpertise: null,
+    audienceDescription: null,
+    guidelinesAlways: null,
+    guidelinesNever: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -82,11 +123,18 @@ projectRoutes.put("/:projectId", async (c) => {
   // Partial update: only the keys present in the body are applied; the refine
   // in the schema guarantees at least one recognized key.
   const fields = await parseBody(c, updateProjectSchema);
-  const updates: Partial<Pick<ProjectRow, "name" | "description" | "contentGuidelines" | "contentTypes">> = {};
+  const updates: Partial<ProjectUpdateFields> = {};
   if (fields.name !== undefined) updates.name = fields.name;
   if (fields.description !== undefined) updates.description = fields.description;
   if (fields.content_guidelines !== undefined) updates.contentGuidelines = fields.content_guidelines;
-  if (fields.content_types !== undefined) updates.contentTypes = fields.content_types;
+  if (fields.content_types !== undefined) updates.contentTypes = joinContentTypes(fields.content_types);
+  if (fields.tone !== undefined) updates.tone = fields.tone;
+  if (fields.audience_expertise !== undefined) updates.audienceExpertise = fields.audience_expertise;
+  if (fields.audience_description !== undefined) {
+    updates.audienceDescription = fields.audience_description;
+  }
+  if (fields.guidelines_always !== undefined) updates.guidelinesAlways = fields.guidelines_always;
+  if (fields.guidelines_never !== undefined) updates.guidelinesNever = fields.guidelines_never;
 
   const [updated] = await getDb(c.env)
     .update(projects)

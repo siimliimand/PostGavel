@@ -4,7 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { effectiveModel } from "../ai/effective";
 import { parseIdeasJson, STRICT_RETRY_SUFFIX } from "../ai/ideas";
 import { generateCompletion, httpStatusForError, OpenRouterError } from "../ai/openrouter";
-import { renderTemplate } from "../ai/prompts";
+import { projectPromptVariables, renderTemplate } from "../ai/prompts";
 import { decryptString } from "../ai/secretbox";
 import { requireProject } from "../auth/access";
 import type { AppEnv } from "../auth/actor";
@@ -132,9 +132,7 @@ ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
     resolvePromptBody(db, project.id, IDEAS_PROMPT_KEY),
   ]);
   const vars: Record<string, string> = {
-    project_description: project.description ?? "",
-    content_guidelines: project.contentGuidelines ?? "",
-    content_types: project.contentTypes ?? "",
+    ...projectPromptVariables(project),
     count: String(count),
     topic_hint: topicHint,
   };

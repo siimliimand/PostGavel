@@ -16,6 +16,35 @@
  * Both functions are pure (no I/O) and unit-testable by inspection.
  */
 
+/**
+ * The brief→prompt variable map (Phase 8). Single source of truth shared by
+ * the prompts `/resolved` route and the ideas generate route so the two can
+ * never drift; request params (`count`, `topic_hint`) stay layered on top by
+ * the generate route. Every variable is always present — a null brief field
+ * renders as "" so unset fields collapse to an empty labeled line.
+ */
+export function projectPromptVariables(project: {
+  description: string | null;
+  contentGuidelines: string | null;
+  contentTypes: string | null;
+  tone: string | null;
+  audienceDescription: string | null;
+  audienceExpertise: string | null;
+  guidelinesAlways: string | null;
+  guidelinesNever: string | null;
+}): Record<string, string> {
+  return {
+    project_description: project.description ?? "",
+    content_guidelines: project.contentGuidelines ?? "",
+    content_types: project.contentTypes ?? "",
+    tone: project.tone ?? "",
+    audience_description: project.audienceDescription ?? "",
+    audience_expertise: project.audienceExpertise ?? "",
+    guidelines_always: project.guidelinesAlways ?? "",
+    guidelines_never: project.guidelinesNever ?? "",
+  };
+}
+
 const VARIABLE_PATTERN = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
 
 /** All `{{name}}` tokens in `body`, in order of first appearance, deduplicated. */

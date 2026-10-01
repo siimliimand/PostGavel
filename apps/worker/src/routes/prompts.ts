@@ -1,6 +1,6 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
-import { extractVariables, renderTemplate } from "../ai/prompts";
+import { extractVariables, projectPromptVariables, renderTemplate } from "../ai/prompts";
 import { requireProject } from "../auth/access";
 import type { AppEnv } from "../auth/actor";
 import { getDb, type Db } from "../db/client";
@@ -72,9 +72,7 @@ promptRoutes.get("/:projectId/prompts/resolved", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
   const prompts = await promptsPayload(getDb(c.env), project.id);
   const vars: Record<string, string> = {
-    project_description: project.description ?? "",
-    content_guidelines: project.contentGuidelines ?? "",
-    content_types: project.contentTypes ?? "",
+    ...projectPromptVariables(project),
     ...STAND_IN_VARS,
   };
   return c.json(

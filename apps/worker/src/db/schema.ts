@@ -41,7 +41,11 @@ export const sessions = sqliteTable(
   ],
 );
 
-// The workspace unit. The three brief fields feed the {{variables}} in prompts.
+// The workspace unit. The brief fields feed the {{variables}} in prompts.
+// content_guidelines is the free-form "Additional notes" escape hatch;
+// content_types is a comma-joined list (canonical format since Phase 8 — the
+// API exchanges it as a string array). The Phase 8 columns are additive and
+// nullable; structured rules live in guidelines_always/guidelines_never.
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   ownerUserId: text("owner_user_id")
@@ -51,6 +55,11 @@ export const projects = sqliteTable("projects", {
   description: text("description"),
   contentGuidelines: text("content_guidelines"),
   contentTypes: text("content_types"),
+  tone: text("tone"),
+  audienceExpertise: text("audience_expertise"),
+  audienceDescription: text("audience_description"),
+  guidelinesAlways: text("guidelines_always"),
+  guidelinesNever: text("guidelines_never"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

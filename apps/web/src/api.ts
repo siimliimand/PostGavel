@@ -47,23 +47,40 @@ export async function fetchJson<T>(input: string, init?: RequestInit): Promise<T
 // API shapes are snake_case, matching the worker's JSON.
 export type ProjectRole = "owner" | "editor";
 
+export type AudienceExpertise = "beginners" | "general" | "practitioners" | "experts";
+
 export type Project = {
   id: string;
   name: string;
   description: string | null;
   content_guidelines: string | null;
-  content_types: string | null;
+  /** Comma-joined in D1, exposed as a string array (Phase 8). */
+  content_types: string[];
+  tone: string | null;
+  audience_expertise: AudienceExpertise | null;
+  audience_description: string | null;
+  guidelines_always: string | null;
+  guidelines_never: string | null;
   created_at: number;
   updated_at: number;
 };
 
 export type ProjectWithRole = Project & { role: ProjectRole };
 
+/**
+ * The full brief PUT body: every field is always sent (the UI's single Save).
+ * Empty optional fields are sent as null (clears), content_types as an array.
+ */
 export type ProjectInput = {
   name: string;
   description: string;
   content_guidelines: string;
-  content_types: string;
+  content_types: string[];
+  tone: string | null;
+  audience_expertise: AudienceExpertise | null;
+  audience_description: string | null;
+  guidelines_always: string | null;
+  guidelines_never: string | null;
 };
 
 // AI configuration (worker sends snake_case, matching plan §3 column names).

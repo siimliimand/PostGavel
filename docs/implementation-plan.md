@@ -1,6 +1,7 @@
 # PostGavel — Implementation Plan
 
-> **Status:** APPROVED & EXECUTED — Phases 0–6 are complete, deployed, and pushed.
+> **Status:** APPROVED & EXECUTED — Phases 0–7 are complete, deployed, and pushed.
+> **Revised 2026-10-01 (b):** added **Phase 8 — Structured brief** (real DB columns for tone/audience/rules, chip-based formats UI, expanded prompt context block) after Phase 7 shipped; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01:** added **Phase 7 — Authentication (email + password)** at the user's request; §1/§2/§3/§4/§6/§8 updated accordingly. Phase 7 awaits the user's go-ahead.
 > **Original date:** 2026-10-01. Sources analyzed: AGENTS.md (project rules), `docs/postiz-analysis.md` (Postiz reference study), current repo state (empty scaffold, README title only).
 > **Hard constraint:** the project must be **Cloudflare-deployable at every phase** (AGENTS.md rule 8).
@@ -92,8 +93,13 @@ projects          (id TEXT PK,
                    owner_user_id TEXT -> users.id,
                    name TEXT,
                    description TEXT,      -- what this project is about
-                   content_guidelines TEXT,-- how content should be generated (tone, rules)
-                   content_types TEXT,     -- what kind of content (e.g. "SEO blog posts, newsletters")
+                   content_guidelines TEXT,-- free-form "Additional notes" escape hatch
+                   content_types TEXT,     -- comma-joined list (API exchanges a string array)
+                   tone TEXT,              -- voice, e.g. "Professional"; free string ≤100 (Phase 8)
+                   audience_expertise TEXT,-- 'beginners'|'general'|'practitioners'|'experts' (Phase 8)
+                   audience_description TEXT, -- who the content is for, ≤500 (Phase 8)
+                   guidelines_always TEXT, -- must-have rules, ≤2000 (Phase 8)
+                   guidelines_never TEXT,  -- exclusion rules, ≤2000 (Phase 8)
                    created_at INTEGER, updated_at INTEGER)
 
 -- sharing: multiple accounts on one project. Role: 'owner' | 'editor'.
@@ -134,6 +140,8 @@ article_ideas     (id TEXT PK,
 **Seed data (migration):** global `prompt_templates` rows for every task type, with `{{project_description}}`, `{{content_guidelines}}`, `{{content_types}}`, `{{count}}`, `{{topic_hint}}` variables — so the product works out of the box and users only *edit*, never author from scratch.
 
 **Phase 7 migration (`0005`):** adds nullable `users.password_hash` and the `sessions` table. Additive only — existing rows (projects, members, ideas) are untouched.
+
+**Phase 8 migrations (`0006` + `0007`):** `0006` (drizzle-kit) adds the five nullable brief columns to `projects`; `0007` (hand-written, pattern of `0003`) rewrites the "Project context" block of both global default templates to the full labeled list (`{{tone}}`, `{{audience_description}}`, `{{audience_expertise}}`, `{{guidelines_always}}`, `{{guidelines_never}}` alongside the existing variables). `projectPromptVariables()` in `src/ai/prompts.ts` is the single brief→variable map (null → `""`), shared by the prompts `/resolved` route and the ideas generate route.
 
 ---
 
@@ -195,7 +203,7 @@ generateCompletion({ apiKey, model, messages, json?: boolean }): Promise<string>
 | Route | Page | Content |
 |---|---|---|
 | `/projects` | Projects list | All projects the actor can access (own + shared), create new. |
-| `/projects/:id` | **Project brief** | Editable: name, *what this project is about*, *how content should be generated*, *what kind of content*. These feed the `{{variables}}` in prompts. |
+| `/projects/:id` | **Project brief** | Card-based form: About (name, description), Audience & voice (tone presets + Custom…, expertise select, audience description), Rules (collapsed always/never), Formats (content-type chips + add-custom, "Additional notes" escape hatch). All fields feed the `{{variables}}` in prompts; one Save (PUT). |
 | `/projects/:id/members` | Sharing | List/add/remove accounts (`email lookup`) on this project, roles owner/editor. |
 | `/projects/:id/ai-config` | **AI config** | OpenRouter API key (masked, replace-not-view), and a model picker per task type (task list rendered from a registry, so future tasks appear automatically). Includes a "Test connection" button (cheap 1-token call). |
 | `/projects/:id/prompts` | **Prompts** | All prompt templates for the project; each shows the global default (read-only reference) and an editable override; reset-to-default action; variables documented inline. |
@@ -248,7 +256,7 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - README update; final `wrangler deploy` + smoke test via system Chromium (`--dump-dom` / screenshot, AGENTS.md rule 5).
 - **Checkpoint:** deployed URL usable end-to-end; deploy step documented in README.
 
-### Phase 7 — Authentication: email + password  *(medium)* — **added 2026-10-01, not yet implemented**
+### Phase 7 — Authentication: email + password  *(medium)* — **added 2026-10-01, implemented**
 - Migration `0005`: nullable `users.password_hash` (PHC-style string) + `sessions` table.
 - `src/auth/passwords.ts` (WebCrypto PBKDF2-SHA256 hash/verify, constant-time compare) and `src/auth/sessions.ts` (mint/verify/revoke, cookie helpers).
 - `resolveActor` swap: `pg_session` cookie → Actor; `X-Dev-User` honored only when `DEV_AUTH=1` (local `.dev.vars`, never in production); unauthenticated `/api` calls → 401 `code:"Unauthorized"`.
@@ -256,6 +264,14 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - UI: `/login`, `/register` pages; top bar shows account email + Log out; SPA redirects to `/login` on 401; members list marks invited-but-unregistered accounts; invited email claiming per §4.
 - README auth section; deploy + Chromium smoke (register → login → share → second profile).
 - **Checkpoint:** on the deployed URL with a clean browser profile: A registers, creates a project, shares it with B's email; B registers (claims the placeholder) and sees the shared project; `X-Dev-User` is ignored in production.
+
+### Phase 8 — Structured brief  *(small-medium)* — **added 2026-10-01**
+- Migration `0006` (drizzle-kit): nullable `projects.tone` (≤100), `audience_expertise` (`beginners`|`general`|`practitioners`|`experts`), `audience_description` (≤500), `guidelines_always` / `guidelines_never` (≤2000). Additive only; `content_guidelines` stays the free-form "Additional notes" escape hatch, `content_types` stays the comma-joined storage format.
+- Migration `0007` (hand-written, pattern of `0003`): both global default templates' "Project context" block becomes the full labeled list — what it's about / tone of voice / audience / expertise level / additional notes / always include / never include / content types (+ topic hint on `article_ideas`). Rules/Output format sections untouched; per-project overrides keep resolving.
+- Shared variable map: `projectPromptVariables(project)` in `src/ai/prompts.ts` returns all eight brief variables (null → `""`); used by BOTH the prompts `/resolved` route and the ideas generate route (request params `count`/`topic_hint` layered on top there) so the two paths cannot drift. Unknown-variable warnings unchanged.
+- API: `PUT /api/projects/:id` accepts the five new fields (string-or-null-to-clear; `audience_expertise` is an enum) and takes `content_types` as an array of ≤12 strings (each ≤40 chars, deduped case-insensitively, order-preserving, stored comma-joined; `[]` clears). GET responses expose the new fields raw and `content_types` as a string array (the UI is the only consumer).
+- UI: brief page rebuilt into cards — About / Audience & voice (tone select with presets + `Custom…` reveal, expertise select, audience description) / Rules (collapsed always/never) / Formats (preset chips + add-custom, case-insensitive matching so legacy `"Seo blog post"` shows as the `SEO article` chip; "Additional notes" textarea below). Save remains one PUT with all fields.
+- **Checkpoint:** with brief fields set, the resolved prompts show each value on its labeled line (`Tone of voice: Professional`); cleared fields render empty after the colon; chips persist across reload; remote migrate + deploy, throwaway-project smoke, real project untouched.
 
 ---
 
@@ -272,4 +288,4 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 | 7 | No Tailwind/component library — minimal hand-rolled UI. | §6 |
 | 8 | Task registry starts with `idea_generation` only; structure supports `outline`, `draft`, `titles` etc. later. | §5 |
 
-**Status note (2026-10-01 revision).** Phases 0–6 are implemented, deployed, and pushed. Phase 7 (email + password authentication, §4 + §7 above) starts on the user's go-ahead. Its schema additions are purely additive, so no decision made in earlier phases reopens.
+**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review.
