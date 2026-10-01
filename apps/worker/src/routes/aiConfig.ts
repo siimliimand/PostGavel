@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Hono } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { generateCompletion, OpenRouterError, type OpenRouterErrorCode } from "../ai/openrouter";
+import { effectiveModel } from "../ai/effective";
+import { generateCompletion, OpenRouterError, httpStatusForError } from "../ai/openrouter";
 import { apiKeyHint, decryptString, encryptString } from "../ai/secretbox";
 import { TASKS } from "../ai/tasks";
 import { requireProject } from "../auth/access";
@@ -18,17 +18,6 @@ const MAX_KEY_LENGTH = 512;
 const MAX_MODEL_LENGTH = 256;
 const PROBE_MESSAGE = "Reply with the single word: pong";
 const PROBE_MAX_TOKENS = 5;
-
-/** OpenRouterError code → HTTP status for the test endpoint's error envelope. */
-const STATUS_BY_CODE: Record<OpenRouterErrorCode, ContentfulStatusCode> = {
-  InvalidKey: 401,
-  NoCredits: 402,
-  RateLimited: 429,
-  InvalidModel: 400,
-  ProviderError: 502,
-  NetworkError: 504,
-  UnknownResponse: 502,
-};
 
 type ConfigRow = typeof projectAiConfig.$inferSelect;
 
@@ -195,16 +184,8 @@ aiConfigRoutes.post("/:projectId/ai-config/test", async (c) => {
 
   let model = modelOverride;
   if (!model) {
-    const ideaTask = TASKS.find((t) => t.key === "idea_generation");
-    if (!ideaTask) throw new Error("task registry is missing idea_generation");
-    const [row] = await db
-      .select({ model: projectModels.model })
-      .from(projectModels)
-      .where(
-        and(eq(projectModels.projectId, project.id), eq(projectModels.taskType, ideaTask.key)),
-      )
-      .limit(1);
-    model = row?.model ?? ideaTask.defaultModel;
+    // One source of truth for stored-row-??-registry-default (see ai/effective.ts).
+    model = await effectiveModel(db, project.id, "idea_generation");
   }
 
   let apiKey: string;
@@ -231,7 +212,7 @@ aiConfigRoutes.post("/:projectId/ai-config/test", async (c) => {
     return c.json({ ok: true, model, latency_ms: Date.now() - startedAt, sample });
   } catch (err) {
     if (err instanceof OpenRouterError) {
-      return c.json({ error: err.message, code: err.code }, STATUS_BY_CODE[err.code]);
+      return c.json({ error: err.message, code: err.code }, httpStatusForError(err));
     }
     throw err;
   }

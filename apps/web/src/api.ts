@@ -153,3 +153,50 @@ export async function resetPrompt(projectId: string, key: string): Promise<void>
 export function fetchResolvedPrompts(projectId: string): Promise<ResolvedPrompt[]> {
   return fetchJson<ResolvedPrompt[]>(`/api/projects/${projectId}/prompts/resolved`);
 }
+
+// Article ideas (plan §6: stored results of idea generation).
+
+export type ArticleIdea = {
+  id: string;
+  title: string;
+  angle: string;
+  /** ISO timestamp. */
+  created_at: string;
+  created_by: string;
+};
+
+export type GenerateIdeasInput = {
+  topic_hint?: string;
+  count?: number;
+};
+
+export type GenerateIdeasResult = {
+  ideas: ArticleIdea[];
+  /** Effective model the generation ran with. */
+  model: string;
+  /** True when the reply only parsed after the one stricter retry. */
+  used_retry: boolean;
+  /** Informational warnings, e.g. unknown {{variables}} left unresolved. */
+  prompt_warnings?: string[];
+};
+
+export function fetchIdeas(projectId: string): Promise<ArticleIdea[]> {
+  return fetchJson<ArticleIdea[]>(`/api/projects/${projectId}/ideas`);
+}
+
+export function generateIdeas(
+  projectId: string,
+  input: GenerateIdeasInput,
+): Promise<GenerateIdeasResult> {
+  return fetchJson<GenerateIdeasResult>(`/api/projects/${projectId}/ideas/generate`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Deletes one idea (204). The list refetches on the page afterwards. */
+export async function deleteIdea(projectId: string, ideaId: string): Promise<void> {
+  await fetchJson<null>(`/api/projects/${projectId}/ideas/${encodeURIComponent(ideaId)}`, {
+    method: "DELETE",
+  });
+}

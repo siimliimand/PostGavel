@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { resolveActor, type AppEnv } from "./auth/actor";
 import { aiConfigRoutes } from "./routes/aiConfig";
 import { CodedHTTPException } from "./routes/errors";
+import { ideaRoutes } from "./routes/ideas";
 import { memberRoutes } from "./routes/members";
 import { metaRoutes } from "./routes/meta";
 import { promptRoutes } from "./routes/prompts";
@@ -44,6 +45,7 @@ api.route("/projects", projectRoutes);
 api.route("/projects", memberRoutes);
 api.route("/projects", aiConfigRoutes);
 api.route("/projects", promptRoutes);
+api.route("/projects", ideaRoutes);
 api.route("/meta", metaRoutes);
 
 app.route("/api", api);

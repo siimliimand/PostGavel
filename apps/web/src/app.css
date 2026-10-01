@@ -371,3 +371,96 @@ h2 {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Ideas page */
+.field select {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d3d7de;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+}
+
+.field select:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: -1px;
+}
+
+.result-note {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.result-note.ok {
+  border: 1px solid #bbe7c9;
+  background: #ecfaf1;
+  color: #0a7d33;
+}
+
+.result-note .warning-line {
+  display: block;
+  margin-top: 0.35rem;
+  color: #b45309;
+}
+
+.error-detail {
+  margin-top: 0.3rem;
+  color: #8f1f16;
+  font-size: 0.85rem;
+  font-weight: 400;
+  word-break: break-word;
+}
+
+.error-detail a {
+  color: inherit;
+}
+
+.idea-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.idea-card {
+  background: #fff;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  padding: 1.1rem 1.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.idea-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.02rem;
+}
+
+.idea-angle {
+  margin: 0 0 0.7rem;
+  white-space: pre-wrap;
+}
+
+.idea-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.btn-small {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
+
+.btn-danger {
+  background: #fff;
+  border-color: #f0c4bd;
+  color: #b42318;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #fdecea;
+}

@@ -8,6 +8,8 @@
  * message text is included truncated for debugging.
  */
 
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+
 export type OpenRouterErrorCode =
   | "InvalidKey" // 401/403: the API key was rejected
   | "NoCredits" // 402: account out of credits
@@ -28,6 +30,23 @@ export class OpenRouterError extends Error {
     this.code = code;
     this.status = status;
   }
+}
+
+/** OpenRouterError code → HTTP status, shared by every route that calls the
+ * provider (AI config test, idea generation, …) so envelopes stay consistent. */
+const STATUS_BY_CODE: Record<OpenRouterErrorCode, ContentfulStatusCode> = {
+  InvalidKey: 401,
+  NoCredits: 402,
+  RateLimited: 429,
+  InvalidModel: 400,
+  ProviderError: 502,
+  NetworkError: 504,
+  UnknownResponse: 502,
+};
+
+/** HTTP status for an OpenRouterError's error envelope (`{ error, code }`). */
+export function httpStatusForError(e: OpenRouterError): ContentfulStatusCode {
+  return STATUS_BY_CODE[e.code];
 }
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };

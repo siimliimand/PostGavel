@@ -1,8 +1,8 @@
 import { Link, useRoute } from "../router";
 
 /**
- * Project sub-navigation, shared by all /projects/:id/* pages. Later phases
- * append Prompts/Ideas/Members entries to this row.
+ * Project sub-navigation, shared by all /projects/:id/* pages. Members is the
+ * remaining later addition to this row.
  */
 export default function ProjectSubNav({ id }: { id: string }) {
   const { path } = useRoute();
@@ -10,6 +10,7 @@ export default function ProjectSubNav({ id }: { id: string }) {
     { to: `/projects/${id}`, label: "Brief" },
     { to: `/projects/${id}/ai-config`, label: "AI config" },
     { to: `/projects/${id}/prompts`, label: "Prompts" },
+    { to: `/projects/${id}/ideas`, label: "Ideas" },
   ];
   return (
     <nav className="subnav" aria-label="Project sections">

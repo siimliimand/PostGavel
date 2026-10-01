@@ -1,0 +1,218 @@
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { effectiveModel } from "../ai/effective";
+import { parseIdeasJson, STRICT_RETRY_SUFFIX } from "../ai/ideas";
+import { generateCompletion, httpStatusForError, OpenRouterError } from "../ai/openrouter";
+import { renderTemplate } from "../ai/prompts";
+import { decryptString } from "../ai/secretbox";
+import { requireProject } from "../auth/access";
+import type { AppEnv } from "../auth/actor";
+import { getDb, type Db } from "../db/client";
+import { articleIdeas, projectAiConfig, promptTemplates } from "../db/schema";
+import { CodedHTTPException } from "./errors";
+import { readJsonObject } from "./helpers";
+
+export const ideaRoutes = new Hono<AppEnv>();
+
+const DEFAULT_COUNT = 5;
+const MIN_COUNT = 1;
+const MAX_COUNT = 10;
+const MAX_TOPIC_HINT_LENGTH = 500;
+const GENERATE_MAX_TOKENS = 4000;
+const LIST_LIMIT = 200;
+const SYSTEM_PROMPT_KEY = "system";
+const IDEAS_PROMPT_KEY = "article_ideas";
+
+/** Effective prompt body for a key: the project's override ?? the global default. */
+async function resolvePromptBody(db: Db, projectId: string, key: string): Promise<string> {
+  const [defaultRow] = await db
+    .select()
+    .from(promptTemplates)
+    .where(and(isNull(promptTemplates.projectId), eq(promptTemplates.key, key)))
+    .limit(1);
+  // Invariant: every key used here is seeded as a global default (migration 0003).
+  if (!defaultRow) throw new Error(`global default prompt "${key}" is missing`);
+  const [overrideRow] = await db
+    .select()
+    .from(promptTemplates)
+    .where(and(eq(promptTemplates.projectId, projectId), eq(promptTemplates.key, key)))
+    .limit(1);
+  return overrideRow?.body ?? defaultRow.body;
+}
+
+function ideaJson(row: typeof articleIdeas.$inferSelect) {
+  return {
+    id: row.id,
+    title: row.title,
+    angle: row.angle,
+    created_at: new Date(row.createdAt).toISOString(),
+    created_by: row.createdBy,
+  };
+}
+
+/**
+ * POST /api/projects/:id/ideas/generate `{ topic_hint?, count? }` — editor+
+ * (it spends credits). Resolves key + model + prompts (plan §5), calls
+ * OpenRouter, parses/validates the JSON reply (one stricter retry), stores the
+ * ideas and returns them. Provider failures surface as the typed error
+ * taxonomy via the shared status map; nothing sensitive is ever echoed back.
+ */
+ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
+  const { project } = await requireProject(c, c.req.param("projectId"));
+  const actor = c.get("actor");
+  const body = (await readJsonObject(c)) ?? {};
+
+  if ("topic_hint" in body && body.topic_hint !== undefined && typeof body.topic_hint !== "string") {
+    return c.json({ error: "topic_hint must be a string when provided" }, 400);
+  }
+  if (
+    "count" in body &&
+    body.count !== undefined &&
+    (typeof body.count !== "number" || !Number.isFinite(body.count))
+  ) {
+    return c.json({ error: "count must be a number when provided" }, 400);
+  }
+
+  const topicHint = typeof body.topic_hint === "string" ? body.topic_hint.trim() : "";
+  if (topicHint.length > MAX_TOPIC_HINT_LENGTH) {
+    return c.json({ error: `topic_hint must be at most ${MAX_TOPIC_HINT_LENGTH} characters` }, 400);
+  }
+  const count = Math.min(
+    MAX_COUNT,
+    Math.max(MIN_COUNT, Math.round(typeof body.count === "number" ? body.count : DEFAULT_COUNT)),
+  );
+
+  const db = getDb(c.env);
+  const [configRow] = await db
+    .select()
+    .from(projectAiConfig)
+    .where(eq(projectAiConfig.projectId, project.id))
+    .limit(1);
+  if (!configRow?.apiKeyEncrypted) {
+    throw new CodedHTTPException(
+      400,
+      "No OpenRouter API key is configured for this project. Save a key first.",
+      "NotConfigured",
+    );
+  }
+
+  let apiKey: string;
+  try {
+    apiKey = await decryptString(configRow.apiKeyEncrypted, c.env.ENCRYPTION_KEY);
+  } catch {
+    // Corrupt blob or the ENCRYPTION_KEY secret changed after the key was
+    // stored. Never surface decrypted material — there is none anyway.
+    throw new CodedHTTPException(
+      500,
+      "The stored API key could not be decrypted (was the ENCRYPTION_KEY secret changed?). Save the key again.",
+      "DecryptFailed",
+    );
+  }
+
+  // Model + prompt resolution happens BEFORE the provider call, so a broken
+  // model/prompt setup can never crash or bypass the typed provider errors.
+  const model = await effectiveModel(db, project.id, "idea_generation");
+  const [systemBody, ideasBody] = await Promise.all([
+    resolvePromptBody(db, project.id, SYSTEM_PROMPT_KEY),
+    resolvePromptBody(db, project.id, IDEAS_PROMPT_KEY),
+  ]);
+  const vars: Record<string, string> = {
+    project_description: project.description ?? "",
+    content_guidelines: project.contentGuidelines ?? "",
+    content_types: project.contentTypes ?? "",
+    count: String(count),
+    topic_hint: topicHint,
+  };
+  const system = renderTemplate(systemBody, vars);
+  const user = renderTemplate(ideasBody, vars);
+  // Informational: unresolved {{variables}} surface as warnings, never a failure.
+  const promptWarnings = [...new Set([...system.unknown, ...user.unknown])].map(
+    (variable) => `Unknown variable {{${variable}}} left unresolved`,
+  );
+
+  const callModel = async (userText: string): Promise<string> => {
+    try {
+      return await generateCompletion({
+        apiKey,
+        model,
+        messages: [
+          { role: "system", content: system.text },
+          { role: "user", content: userText },
+        ],
+        json: true,
+        maxTokens: GENERATE_MAX_TOKENS,
+      });
+    } catch (err) {
+      if (err instanceof OpenRouterError) {
+        throw new CodedHTTPException(httpStatusForError(err), err.message, err.code);
+      }
+      throw err as Error;
+    }
+  };
+
+  const content = await callModel(user.text);
+
+  let parsed = parseIdeasJson(content, count);
+  let usedRetry = false;
+  if (parsed.problem) {
+    // One retry with a stricter instruction, per plan §5.
+    usedRetry = true;
+    const retryContent = await callModel(`${user.text}\n\n${STRICT_RETRY_SUFFIX}`);
+    parsed = parseIdeasJson(retryContent, count);
+    if (parsed.problem) {
+      throw new CodedHTTPException(
+        502,
+        "The AI's reply could not be parsed into article ideas, even after one stricter retry. Please try generating again.",
+        "GenerationFailed",
+      );
+    }
+  }
+
+  // One atomic multi-row INSERT: all ideas land or none do.
+  const now = Date.now();
+  const rows = parsed.ideas.map((idea) => ({
+    id: crypto.randomUUID(),
+    projectId: project.id,
+    title: idea.title,
+    angle: idea.angle,
+    createdAt: now,
+    createdBy: actor.userId,
+  }));
+  await db.insert(articleIdeas).values(rows);
+
+  return c.json(
+    {
+      ideas: rows.map((row) => ideaJson(row)),
+      model,
+      used_retry: usedRetry,
+      ...(promptWarnings.length > 0 ? { prompt_warnings: promptWarnings } : {}),
+    },
+    201,
+  );
+});
+
+/** GET /api/projects/:id/ideas — member read, newest first, capped at 200. */
+ideaRoutes.get("/:projectId/ideas", async (c) => {
+  const { project } = await requireProject(c, c.req.param("projectId"));
+  const rows = await getDb(c.env)
+    .select()
+    .from(articleIdeas)
+    .where(eq(articleIdeas.projectId, project.id))
+    .orderBy(desc(articleIdeas.createdAt), desc(articleIdeas.id))
+    .limit(LIST_LIMIT);
+  return c.json(rows.map(ideaJson));
+});
+
+/** DELETE /api/projects/:id/ideas/:ideaId — editor+, scoped to the project. */
+ideaRoutes.delete("/:projectId/ideas/:ideaId", async (c) => {
+  const { project } = await requireProject(c, c.req.param("projectId"));
+  const removed = await getDb(c.env)
+    .delete(articleIdeas)
+    .where(
+      and(eq(articleIdeas.projectId, project.id), eq(articleIdeas.id, c.req.param("ideaId"))),
+    )
+    .returning();
+  if (removed.length === 0) throw new HTTPException(404, { message: "Idea not found" });
+  return c.body(null, 204);
+});
