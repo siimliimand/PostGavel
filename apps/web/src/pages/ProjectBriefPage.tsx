@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, fetchJson, type Project, type ProjectInput } from "../api";
+import ProjectSubNav from "../components/ProjectSubNav";
 import { Link } from "../router";
 
 const EMPTY: ProjectInput = { name: "", description: "", content_guidelines: "", content_types: "" };
@@ -110,8 +111,10 @@ export default function ProjectBriefPage({ id }: { id: string }) {
   if (!project) return <p className="loading">Loading…</p>;
 
   return (
-    <form onSubmit={save} className="card">
-      <h1>Project brief</h1>
+    <>
+      <ProjectSubNav id={id} />
+      <form onSubmit={save} className="card">
+        <h1>Project brief</h1>
 
       <div className="field">
         <label htmlFor="brief-name">Name</label>
@@ -169,6 +172,7 @@ export default function ProjectBriefPage({ id }: { id: string }) {
       )}
 
       <p className="hint">These fields are injected into your AI prompts.</p>
-    </form>
+      </form>
+    </>
   );
 }

@@ -192,3 +192,99 @@ h1 {
 .back-link:hover {
   text-decoration: underline;
 }
+
+/* Project sub-navigation (Brief | AI config, more to come) */
+.subnav {
+  display: flex;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.subnav-link {
+  padding: 0.25rem 0;
+  color: #4f46e5;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+
+.subnav-link:hover {
+  color: #4338ca;
+}
+
+.subnav-link.active {
+  color: #1c2430;
+  border-bottom-color: #4f46e5;
+}
+
+/* AI config page */
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.muted {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.key-status code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: #f1f3f6;
+  font-size: 0.85em;
+}
+
+.btn-secondary {
+  background: #fff;
+  color: #4f46e5;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #f1f3f6;
+}
+
+.default-badge {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.test-result {
+  margin-top: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.test-result.ok {
+  border: 1px solid #bbe7c9;
+  background: #ecfaf1;
+  color: #0a7d33;
+}
+
+.test-result.failed {
+  border: 1px solid #f0c4bd;
+  background: #fdecea;
+  color: #b42318;
+}
+
+.test-result pre {
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  font: inherit;
+  color: inherit;
+}
+
+.test-result code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 0.85em;
+}

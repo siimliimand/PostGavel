@@ -1,0 +1,6 @@
+# Local worker secrets. wrangler dev loads this file automatically; .dev.vars
+# itself is gitignored — copy this example and fill in your own random values.
+# Generate a strong key with: openssl rand -base64 32
+# (minimum 32 characters enforced by the worker at runtime; different per
+# environment is fine — but changing it later invalidates stored API keys).
+ENCRYPTION_KEY=replace-me-with-your-own-openssl-rand-base64-32-output

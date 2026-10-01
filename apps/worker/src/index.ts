@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { resolveActor, type AppEnv } from "./auth/actor";
+import { aiConfigRoutes } from "./routes/aiConfig";
+import { CodedHTTPException } from "./routes/errors";
 import { memberRoutes } from "./routes/members";
+import { metaRoutes } from "./routes/meta";
 import { projectRoutes } from "./routes/projects";
 
 const app = new Hono<AppEnv>();
@@ -12,9 +15,13 @@ app.get("/api/health", (c) =>
 
 app.get("/api/hello", (c) => c.json({ message: "Hello from PostGavel worker" }));
 
-// Every failure answers { "error": "message" }; requireProject and input
-// validation raise HTTPException, anything unexpected becomes a JSON 500.
+// Every failure answers { "error": "message" } (plus "code" where a typed code
+// exists, e.g. OpenRouter errors); requireProject and validation raise
+// HTTPException, anything unexpected becomes a JSON 500.
 app.onError((err, c) => {
+  if (err instanceof CodedHTTPException) {
+    return c.json({ error: err.message, code: err.code }, err.status);
+  }
   if (err instanceof HTTPException) {
     return c.json({ error: err.message }, err.status);
   }
@@ -34,6 +41,8 @@ api.get("/me", (c) => {
 
 api.route("/projects", projectRoutes);
 api.route("/projects", memberRoutes);
+api.route("/projects", aiConfigRoutes);
+api.route("/meta", metaRoutes);
 
 app.route("/api", api);
 

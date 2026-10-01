@@ -3,6 +3,7 @@ import type { MiddlewareHandler } from "hono";
 import type { Db } from "../db/client";
 import { getDb } from "../db/client";
 import { users } from "../db/schema";
+import type { WorkerEnv } from "../env";
 
 export type ProjectRole = "owner" | "editor";
 
@@ -13,8 +14,12 @@ export type Actor = {
   projectRole: ProjectRole | null;
 };
 
-/** Hono env used across the API: worker bindings + request-scoped actor. */
-export type AppEnv = { Bindings: Env; Variables: { actor: Actor } };
+/**
+ * Hono env used across the API: worker bindings + request-scoped actor.
+ * WorkerEnv (Env + required ENCRYPTION_KEY secret) makes tsc enforce that the
+ * whole app assumes the secret exists; see src/env.ts.
+ */
+export type AppEnv = { Bindings: WorkerEnv; Variables: { actor: Actor } };
 
 const DEFAULT_DEV_EMAIL = "dev@postgavel.local";
 
