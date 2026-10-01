@@ -1,0 +1,7 @@
+import { drizzle } from "drizzle-orm/d1";
+
+export function getDb(env: Env) {
+  return drizzle(env.DB);
+}
+
+export type Db = ReturnType<typeof getDb>;

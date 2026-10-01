@@ -8,6 +8,27 @@
       "when": 1790856166615,
       "tag": "0000_great_sir_ram",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790857282179,
+      "tag": "0001_known_pixie",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790857292652,
+      "tag": "0002_next_unicorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790857294413,
+      "tag": "0003_seed_global_prompts",
+      "breakpoints": true
     }
   ]
 }
