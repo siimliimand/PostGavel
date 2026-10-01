@@ -5,5 +5,9 @@
  * worker-configuration.d.ts (generated — never hand-edit) lacks the field.
  * Intersecting it here and using this type for the whole app makes tsc enforce
  * that every code path touching the secret assumes its presence.
+ *
+ * DEV_AUTH is OPTIONAL and local-dev-only ("1" in .dev.vars re-enables the
+ * X-Dev-User header fallback). It is deliberately NOT defined in
+ * wrangler.jsonc, so production always runs cookie-session auth only.
  */
-export type WorkerEnv = Env & { ENCRYPTION_KEY: string };
+export type WorkerEnv = Env & { ENCRYPTION_KEY: string; DEV_AUTH?: string };

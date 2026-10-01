@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { resolveActor, type AppEnv } from "./auth/actor";
+import { authRoutes } from "./routes/auth";
 import { aiConfigRoutes } from "./routes/aiConfig";
 import { CodedHTTPException } from "./routes/errors";
 import { ideaRoutes } from "./routes/ideas";
@@ -42,7 +43,8 @@ app.onError((err, c) => {
 });
 
 // Authenticated API. Health/hello above stay DB-free; everything in here
-// resolves an actor first (dev stub, see auth/actor.ts).
+// resolves an actor first (session cookie; X-Dev-User only with DEV_AUTH=1,
+// see auth/actor.ts).
 const api = new Hono<AppEnv>();
 api.use("*", resolveActor);
 
@@ -51,6 +53,7 @@ api.get("/me", (c) => {
   return c.json({ userId, email });
 });
 
+api.route("/auth", authRoutes);
 api.route("/projects", projectRoutes);
 api.route("/projects", memberRoutes);
 api.route("/projects", aiConfigRoutes);

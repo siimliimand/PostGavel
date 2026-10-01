@@ -4,3 +4,10 @@
 # (minimum 32 characters enforced by the worker at runtime; different per
 # environment is fine — but changing it later invalidates stored API keys).
 ENCRYPTION_KEY=replace-me-with-your-own-openssl-rand-base64-32-output
+
+# Local dev ONLY: set to 1 to re-enable the X-Dev-User request header as an
+# identity fallback (plus the default dev account) alongside real session
+# auth. NEVER set this in production — wrangler.jsonc deliberately does not
+# define DEV_AUTH there. Remove the line to test the app with real
+# register/login session cookies only.
+DEV_AUTH=1

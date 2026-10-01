@@ -200,3 +200,65 @@ export async function deleteIdea(projectId: string, ideaId: string): Promise<voi
     method: "DELETE",
   });
 }
+
+// Authentication (plan §4/§7). The session lives in the pg_session cookie;
+// same-origin fetch attaches it automatically, so no token handling here.
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string | null;
+};
+
+export type AuthResponse = { user: AuthUser };
+
+export function register(input: {
+  email: string;
+  password: string;
+  name?: string;
+}): Promise<AuthResponse> {
+  return fetchJson<AuthResponse>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function login(input: { email: string; password: string }): Promise<AuthResponse> {
+  return fetchJson<AuthResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Revokes the server-side session and clears the cookie (204). */
+export async function logout(): Promise<void> {
+  await fetchJson<null>("/api/auth/logout", { method: "POST" });
+}
+
+/** The signed-in account; rejects with a 401 ApiError (code "Unauthorized") when signed out. */
+export function me(): Promise<AuthUser> {
+  return fetchJson<AuthUser>("/api/auth/me");
+}
+
+/**
+ * Friendly line for auth forms: the server's typed codes map to fixed,
+ * human text (plan §7); unknown codes pass the server message through, and a
+ * non-ApiError (fetch itself failed) reads as a network problem.
+ */
+export function authErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case "InvalidCredentials":
+        return "Wrong email or password.";
+      case "EmailTaken":
+        return "That email is already registered — try logging in instead.";
+      case "RateLimited":
+        return "Too many attempts — please wait a moment and try again.";
+      case "ValidationError":
+        return err.message;
+      default:
+        return err.message;
+    }
+  }
+  return "Could not reach the server. Check your connection and try again.";
+}

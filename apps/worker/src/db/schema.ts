@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Conventions (whole schema):
@@ -8,14 +8,38 @@ import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm
  * - timestamps are INTEGER unix milliseconds (Date.now()), never seconds.
  */
 
-// Accounts. Auth-ready: created lazily on first sight; a real auth provider
-// owns credentials later (plan §4).
+// Accounts. Credentials are owned by this app since Phase 7 (plan §4):
+// password_hash is a PHC-style "pbkdf2-sha256$<iter>$<salt-b64>$<hash-b64>"
+// string managed by auth/passwords.ts. NULL = invited placeholder (a member
+// was shared with this email) that has not registered/claimed the account yet.
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name"),
+  passwordHash: text("password_hash"),
   createdAt: integer("created_at").notNull(),
 });
+
+// Server-side session store (Phase 7, plan §4). Only SHA-256(token) is stored —
+// the raw token lives only in the browser cookie, so a database leak yields no
+// usable sessions. Rows are managed entirely by auth/sessions.ts; expired rows
+// are deleted lazily on access.
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(), // hex SHA-256 of the session token
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    lastUsedAt: integer("last_used_at").notNull(),
+  },
+  (t) => [
+    index("sessions_user_id_idx").on(t.userId),
+    index("sessions_expires_at_idx").on(t.expiresAt),
+  ],
+);
 
 // The workspace unit. The three brief fields feed the {{variables}} in prompts.
 export const projects = sqliteTable("projects", {

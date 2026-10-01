@@ -143,8 +143,7 @@ aiConfigRoutes.post("/:projectId/ai-config/test", async (c) => {
   // Cheap rejection BEFORE any config read / key decrypt / provider call.
   await enforceRateLimit(
     getDb(c.env),
-    project.id,
-    AI_CONFIG_TEST_LIMIT.action,
+    `${project.id}:${AI_CONFIG_TEST_LIMIT.action}`,
     AI_CONFIG_TEST_LIMIT.limit,
     AI_CONFIG_TEST_LIMIT.windowMs,
   );

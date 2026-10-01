@@ -3,9 +3,9 @@
 A simple AI content workspace: create **projects**, describe what each one is
 about, configure **OpenRouter** (API key + which model does which task), tune
 **every prompt**, and generate **long-form article ideas** — all on Cloudflare.
-Status: **phases 0–6 complete** (scaffold → schema/tenancy → brief → AI config
-→ prompts → idea generation → hardening). See
-[`docs/implementation-plan.md`](docs/implementation-plan.md).
+Status: **phases 0–7 complete** (scaffold → schema/tenancy → brief → AI config
+→ prompts → idea generation → hardening → email + password authentication).
+See [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Stack
 
@@ -14,7 +14,7 @@ Status: **phases 0–6 complete** (scaffold → schema/tenancy → brief → AI 
 - **React + Vite SPA** (`apps/web`), built to `dist/` and served by the Worker.
 - **OpenRouter** called directly with `fetch` (OpenAI-compatible chat completions) — no SDK.
 - API keys are encrypted at rest with **AES-256-GCM** (WebCrypto, HKDF from the `ENCRYPTION_KEY` worker secret).
-- Input validation with **zod**; uniform error envelope; per-project rate limiting via a D1 fixed-window counter.
+- Input validation with **zod**; uniform error envelope; rate limiting (per project / per email) via D1 fixed-window counters.
 
 ## Layout
 
@@ -87,10 +87,42 @@ applied (step 3) → `ENCRYPTION_KEY` secret set (step 4). Changing
 4. **Ideas** (`/projects/:id/ideas`): pick a count, optionally a topic hint,
    generate, and manage the stored ideas.
 
-Auth: real login is not built yet (plan §4). In dev the identity comes from the
-`X-Dev-User: <email>` request header, falling back to a fixed default dev
-account — so the SPA works out of the box, and different "accounts" can be
-simulated with the header (e.g. via `curl -H "X-Dev-User: alice@example.com"`).
+## Authentication
+
+Accounts are **email + password** (plan §4), with server-side sessions in D1:
+
+- **Register** at `/register` (`POST /api/auth/register`). Registering an email
+  that already has a password fails with `400 EmailTaken`; registering an email
+  that was invited to a project but never registered (a *passwordless
+  placeholder* user) **claims** that account — the person then sees the
+  projects shared with them.
+- **Login** at `/login` (`POST /api/auth/login`). Failures are one generic
+  `401 InvalidCredentials` ("Wrong email or password.") whether the email is
+  unknown, unclaimed, or the password is wrong. Login attempts are rate
+  limited per email: **10 per 5 minutes** → `429 RateLimited` (+ `Retry-After`).
+- **Sessions**: register/login set an `HttpOnly; Secure; SameSite=Lax` cookie
+  (`pg_session`, 30 days). Only the **SHA-256 of the token** is stored in D1
+  (`sessions` table) — a database leak yields no usable sessions. Expiry
+  *slides*: a session used in the second half of its life is extended back to
+  the full 30 days. `POST /api/auth/logout` revokes the row and clears the
+  cookie; expired rows are deleted lazily. `GET /api/auth/me` returns the
+  signed-in account.
+- **Password hashing**: WebCrypto **PBKDF2-SHA256** (Workers-native, no native
+  modules), 16-byte random salt, 32-byte derived key, 100 000 iterations,
+  stored PHC-style as
+  `pbkdf2-sha256$<iterations>$<salt-base64>$<hash-base64>` — the iteration
+  count lives inside the string so it can be raised without a migration.
+  Verification is constant-time.
+- **Every `/api/*` route except** `GET /api/health`, `POST
+  /api/auth/register` and `POST /api/auth/login` requires a valid session;
+  without one the API answers `401 { "error": "Please sign in to continue.",
+  "code": "Unauthorized" }`. The SPA redirects accordingly (`/login` when
+  signed out, `/projects` when signed in).
+- **Local dev only**: with `DEV_AUTH=1` in `apps/worker/.dev.vars`, the old
+  `X-Dev-User: <email>` request header (or the default dev account) still
+  resolves a user, so scripted API testing stays easy. `DEV_AUTH` is
+  deliberately **not** defined in `wrangler.jsonc` — production never has the
+  fallback, and the header is ignored there.
 
 ## API
 
@@ -101,15 +133,20 @@ documented per route below):
 { "error": "human-readable message", "code": "MachineReadableCode" }
 ```
 
-Auth for all routes below: the dev actor middleware (`X-Dev-User` header or
-default account). Project access = membership in `project_members`; any member
+Auth for all routes below: a valid `pg_session` session cookie (see
+[Authentication](#authentication)); `X-Dev-User` works only in local dev with
+`DEV_AUTH=1`. Project access = membership in `project_members`; any member
 may read, editors may write, owners may share/delete ("editor+"/"owner+") —
 otherwise `404` (no existence leak) / `403`.
 
 | Method & path | Body | Codes |
 |---|---|---|
 | `GET /api/health` | — | — |
-| `GET /api/me` | — | — |
+| `POST /api/auth/register` | `{ email, password, name? }` | `ValidationError`, `EmailTaken` (400) |
+| `POST /api/auth/login` | `{ email, password }` | `ValidationError`, `InvalidCredentials` (401), `RateLimited` |
+| `POST /api/auth/logout` | — | — |
+| `GET /api/auth/me` | — | `Unauthorized` |
+| `GET /api/me` | — | `Unauthorized` (legacy identity alias) |
 | `GET /api/meta/tasks` | — | — |
 | `GET /api/meta/openrouter-models` | — | — |
 | `GET /api/projects` | — | — |
@@ -117,7 +154,7 @@ otherwise `404` (no existence leak) / `403`.
 | `GET /api/projects/:id` | — | — |
 | `PUT /api/projects/:id` | any of `{ name, description, content_guidelines, content_types }` | `ValidationError` |
 | `DELETE /api/projects/:id` | — | owner only |
-| `GET /api/projects/:id/members` | — | — |
+| `GET /api/projects/:id/members` | — | — (rows carry `registered: false` for invited, not-yet-registered emails) |
 | `POST /api/projects/:id/members` | `{ email, role: "owner"\|"editor" }` | `ValidationError`; `409` already a member |
 | `DELETE /api/projects/:id/members/:userId` | — | owner only; owner cannot be removed |
 | `GET /api/projects/:id/ai-config` | — | — |
@@ -132,7 +169,7 @@ otherwise `404` (no existence leak) / `403`.
 | `GET /api/projects/:id/ideas` | — | — |
 | `DELETE /api/projects/:id/ideas/:ideaId` | — | — |
 
-Rate limits (per project, fixed 1-minute windows, D1 counter): idea generation
-**5/min** (`POST …/ideas/generate`), AI config test **10/min**
-(`POST …/ai-config/test`). Exceeding them returns `429` with code
-`RateLimited` and a `Retry-After` header.
+Rate limits (D1 fixed-window counters): per project — idea generation **5/min**
+(`POST …/ideas/generate`), AI config test **10/min** (`POST
+…/ai-config/test`); per email — login **10 per 5 min**. Exceeding them returns
+`429` with code `RateLimited` and a `Retry-After` header.

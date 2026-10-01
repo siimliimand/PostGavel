@@ -22,13 +22,18 @@ memberRoutes.get("/:projectId/members", async (c) => {
       email: users.email,
       name: users.name,
       role: projectMembers.role,
+      passwordHash: users.passwordHash,
     })
     .from(projectMembers)
     .innerJoin(users, eq(projectMembers.userId, users.id))
     .where(eq(projectMembers.projectId, projectId))
     // owners first, then alphabetical for a stable list
     .orderBy(desc(projectMembers.role), users.email);
-  return c.json(rows);
+  // `registered` = the account has its own credentials; passwordless rows are
+  // invited placeholders (plan §4). The hash itself never leaves the worker.
+  return c.json(
+    rows.map(({ passwordHash, ...member }) => ({ ...member, registered: passwordHash != null })),
+  );
 });
 
 memberRoutes.post("/:projectId/members", async (c) => {

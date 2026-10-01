@@ -1,6 +1,7 @@
 /**
- * Basic per-project rate limiting (plan §7 Phase 6): a fixed-window counter in
- * D1, keyed by "{projectId}:{action}".
+ * Rate limiting (plan §7 Phase 6): a fixed-window counter in D1, keyed by an
+ * arbitrary caller-chosen string — projects use "{projectId}:{action}",
+ * login uses "login:{email}" (Phase 7).
  *
  * Why D1 and not the beta Workers ratelimit binding: the binding does not work
  * in local `wrangler dev`, so dev and prod would behave differently. A D1
@@ -22,8 +23,11 @@ export const IDEAS_GENERATE_LIMIT = { action: "ideas_generate", limit: 5, window
 /** The cheap probe endpoint: 10 calls per minute per project. */
 export const AI_CONFIG_TEST_LIMIT = { action: "ai_config_test", limit: 10, windowMs: 60_000 } as const;
 
+/** Login attempts per email address: 10 per 5 minutes (brute-force guard). */
+export const LOGIN_LIMIT = { limit: 10, windowMs: 5 * 60_000 } as const;
+
 /**
- * Count one request against the project's window for `action` and throw a 429
+ * Count one request against the fixed window for `key` and throw a 429
  * CodedHTTPException (code "RateLimited", Retry-After set to the remaining
  * seconds of the window) when the limit is exceeded.
  *
@@ -33,12 +37,10 @@ export const AI_CONFIG_TEST_LIMIT = { action: "ai_config_test", limit: 10, windo
  */
 export async function enforceRateLimit(
   db: Db,
-  projectId: string,
-  action: string,
+  key: string,
   limit: number,
   windowMs: number,
 ): Promise<void> {
-  const key = `${projectId}:${action}`;
   const now = Date.now();
   const [row] = await db
     .insert(rateLimits)

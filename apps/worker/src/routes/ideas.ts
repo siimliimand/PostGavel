@@ -87,8 +87,7 @@ ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
   // Cheap rejection BEFORE any config read / key decrypt / provider call.
   await enforceRateLimit(
     getDb(c.env),
-    project.id,
-    IDEAS_GENERATE_LIMIT.action,
+    `${project.id}:${IDEAS_GENERATE_LIMIT.action}`,
     IDEAS_GENERATE_LIMIT.limit,
     IDEAS_GENERATE_LIMIT.windowMs,
   );
