@@ -9,40 +9,186 @@ body {
   color: #1c2430;
 }
 
+.topbar {
+  background: #fff;
+  border-bottom: 1px solid #e3e6ea;
+}
+
+.topbar-inner {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #1c2430;
+  text-decoration: none;
+}
+
 .container {
   max-width: 40rem;
-  margin: 15vh auto 0;
-  padding: 2rem;
+  margin: 2rem auto 4rem;
+  padding: 0 1rem;
+}
+
+.card {
   background: #fff;
   border: 1px solid #e3e6ea;
   border-radius: 10px;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 h1 {
-  margin: 0 0 0.5rem;
-}
-
-.hello {
   margin: 0 0 1rem;
-  color: #4b5563;
+  font-size: 1.4rem;
 }
 
-.status {
-  margin: 0;
-  padding: 0.75rem 1rem;
-  background: #f1f3f6;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+.field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.field input,
+.field textarea {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid #d3d7de;
   border-radius: 6px;
+  font: inherit;
 }
 
-.good {
+.field input:focus,
+.field textarea:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: -1px;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid #4f46e5;
+  border-radius: 6px;
+  background: #4f46e5;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #4338ca;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.flash {
   color: #0a7d33;
+  font-weight: 600;
 }
 
-.bad {
+.dirty-hint {
+  color: #b45309;
+  font-size: 0.85rem;
+}
+
+.error {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #f0c4bd;
+  border-radius: 6px;
+  background: #fdecea;
   color: #b42318;
 }
 
-.time {
+.hint {
+  margin: 1rem 0 0;
   color: #6b7280;
-  font-size: 0.875rem;
+  font-size: 0.85rem;
+}
+
+.loading,
+.empty {
+  color: #6b7280;
+}
+
+.project-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 1.5rem;
+}
+
+.project-list li + li {
+  border-top: 1px solid #eef0f3;
+}
+
+.project-link {
+  display: block;
+  padding: 0.75rem 0.25rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.project-link:hover {
+  background: #f9fafb;
+}
+
+.project-name {
+  display: block;
+  font-weight: 600;
+  color: #4f46e5;
+}
+
+.project-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.role-badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #f1f3f6;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.create-form {
+  padding-bottom: 1.25rem;
+}
+
+.create-form .btn {
+  margin-top: 0.25rem;
+}
+
+.back-link {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  text-decoration: underline;
 }

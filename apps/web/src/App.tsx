@@ -1,40 +1,76 @@
-import { useEffect, useState } from "react";
+import { useEffect, type ReactNode } from "react";
+import ProjectBriefPage from "./pages/ProjectBriefPage";
+import ProjectsListPage from "./pages/ProjectsListPage";
+import { Link, navigate, RouterProvider, useRoute } from "./router";
 
-type Health = { ok: boolean; service: string; time: string };
+function TopBar() {
+  return (
+    <header className="topbar">
+      <div className="topbar-inner">
+        <Link href="/projects" className="brand">
+          PostGavel
+        </Link>
+      </div>
+    </header>
+  );
+}
 
-export default function App() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function Screen({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <TopBar />
+      <main className="container">{children}</main>
+    </>
+  );
+}
 
+function Redirect({ to }: { to: string }) {
   useEffect(() => {
-    fetch("/api/health")
-      .then((res) =>
-        res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)),
-      )
-      .then(setHealth)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : String(err)),
+    navigate(to, true);
+  }, [to]);
+  return null;
+}
+
+function Routes() {
+  const { segments } = useRoute();
+
+  if (segments.length === 0) return <Redirect to="/projects" />;
+
+  if (segments[0] === "projects") {
+    if (segments.length === 1) {
+      return (
+        <Screen>
+          <ProjectsListPage />
+        </Screen>
       );
-  }, []);
+    }
+    if (segments.length === 2) {
+      return (
+        <Screen>
+          <ProjectBriefPage id={segments[1]} />
+        </Screen>
+      );
+    }
+  }
 
   return (
-    <main className="container">
-      <h1>PostGavel</h1>
-      <p className="hello">Hello — this page is served by the PostGavel worker.</p>
-      <p className="status">
-        {error ? (
-          <>
-            API health: <strong className="bad">unreachable</strong> ({error})
-          </>
-        ) : health ? (
-          <>
-            API health: <strong className="good">ok</strong>{" "}
-            <span className="time">{health.time}</span>
-          </>
-        ) : (
-          "Checking API health…"
-        )}
-      </p>
-    </main>
+    <Screen>
+      <div className="card">
+        <h1>Page not found</h1>
+        <p>
+          <Link href="/projects" className="back-link">
+            ← Back to projects
+          </Link>
+        </p>
+      </div>
+    </Screen>
+  );
+}
+
+export default function App() {
+  return (
+    <RouterProvider>
+      <Routes />
+    </RouterProvider>
   );
 }
