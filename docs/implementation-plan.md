@@ -1,8 +1,8 @@
 # PostGavel — Implementation Plan
 
-> **Status:** DRAFT — awaiting user approval (AGENTS.md rule 2).
-> **Date:** 2026-10-01
-> **Sources analyzed:** AGENTS.md (project rules), `docs/postiz-analysis.md` (Postiz reference study), current repo state (empty scaffold, README title only).
+> **Status:** APPROVED & EXECUTED — Phases 0–6 are complete, deployed, and pushed.
+> **Revised 2026-10-01:** added **Phase 7 — Authentication (email + password)** at the user's request; §1/§2/§3/§4/§6/§8 updated accordingly. Phase 7 awaits the user's go-ahead.
+> **Original date:** 2026-10-01. Sources analyzed: AGENTS.md (project rules), `docs/postiz-analysis.md` (Postiz reference study), current repo state (empty scaffold, README title only).
 > **Hard constraint:** the project must be **Cloudflare-deployable at every phase** (AGENTS.md rule 8).
 
 ---
@@ -15,7 +15,7 @@ Simpler than Postiz by intent: no social integrations, no scheduling engine, no 
 
 ### In scope (this plan)
 
-1. **Auth readiness** — architecture prepared for real authentication (implemented later).
+1. **Authentication** — email + password registration/login with D1-backed session cookies (Phase 7), built on the Phase 1 readiness layer (single `resolveActor` choke point).
 2. **Multi-project, multi-account** — many projects per user/company; several accounts can access the same project.
 3. **Project brief** — per-project description: what it's about, how content should be generated, what kind of content.
 4. **OpenRouter config per project** — API key + model-per-task mapping, on a dedicated settings page.
@@ -24,7 +24,7 @@ Simpler than Postiz by intent: no social integrations, no scheduling engine, no 
 
 ### Out of scope (for now)
 
-- Actual login/registration UI (auth comes later — only the readiness layer is built).
+- Password reset / email verification (would need an email sender — none in this project), OIDC/SSO, device/session management UI beyond logout.
 - Article *drafting* (only ideas in this iteration; the model-mapping design leaves room for it).
 - Social media integrations, scheduling, publishing, teams/roles beyond read/write, billing.
 
@@ -50,7 +50,8 @@ Browser (React SPA)
    ▼
 Cloudflare Worker
    ├── Hono app
-   │    ├── actor middleware   (auth-readiness layer; dev stub now, JWT/OIDC later)
+   │    ├── actor middleware   (session-cookie auth, email + password — §4)
+   │    ├── /api/auth          (register / login / logout / me)
    │    ├── /api/projects      (CRUD + brief)
    │    ├── /api/projects/:id/ai-config
    │    ├── /api/projects/:id/prompts
@@ -62,7 +63,7 @@ Cloudflare Worker
          └── fetch https://openrouter.ai/api/v1/...  (server-side only, key never leaves the Worker)
 ```
 
-**Non-negotiables carried from AGENTS.md:** no Node-only APIs (`fs`, `crypto` node module, `bcrypt`), no background processes, no disk. Password hashing later = WebCrypto PBKDF2 or a Workers-compatible library (never `bcrypt`).
+**Non-negotiables carried from AGENTS.md:** no Node-only APIs (`fs`, `crypto` node module, `bcrypt`), no background processes, no disk. Password hashing = **WebCrypto PBKDF2-SHA256** (native in Workers; never `bcrypt`).
 
 ---
 
@@ -71,11 +72,20 @@ Cloudflare Worker
 Deliberately minimal. All access checks go through `project_members`, which makes adding companies/orgs later a non-breaking migration.
 
 ```sql
--- users: accounts. Auth-ready: created lazily; a real auth provider owns credentials later.
+-- users: accounts. Credentials owned by this app since Phase 7 (email + password).
 users             (id TEXT PK,            -- uuid
-                   email TEXT UNIQUE,     -- unique identity even before real auth
+                   email TEXT UNIQUE,     -- login identity, stored lowercase
                    name TEXT,
+                   password_hash TEXT NULL, -- PHC-style "pbkdf2-sha256$<iter>$<salt-b64>$<hash-b64>"
+                                            -- NULL = invited placeholder, not yet registered
                    created_at INTEGER)
+
+-- sessions: server-side session store. Only a hash of the token is stored.
+sessions          (id TEXT PK,            -- SHA-256(token) hex; raw token lives only in the cookie
+                   user_id TEXT -> users.id,
+                   created_at INTEGER,
+                   expires_at INTEGER,    -- created_at + 30 days, sliding renewal
+                   last_used_at INTEGER)
 
 -- projects: the workspace unit.
 projects          (id TEXT PK,
@@ -123,25 +133,42 @@ article_ideas     (id TEXT PK,
 
 **Seed data (migration):** global `prompt_templates` rows for every task type, with `{{project_description}}`, `{{content_guidelines}}`, `{{content_types}}`, `{{count}}`, `{{topic_hint}}` variables — so the product works out of the box and users only *edit*, never author from scratch.
 
+**Phase 7 migration (`0005`):** adds nullable `users.password_hash` and the `sessions` table. Additive only — existing rows (projects, members, ideas) are untouched.
+
 ---
 
-## 4. Auth readiness design (auth implemented later)
+## 4. Authentication (email + password — Phase 7)
 
-A single choke point every route goes through:
+The same single choke point every route goes through, now real:
 
 ```ts
 // src/auth/actor.ts
 type Actor = { userId: string; email: string; role: 'owner' | 'editor' | null /* project role */ };
 
 resolveActor(req): Promise<Actor | null>
-// NOW (dev mode): reads X-Dev-User header or returns/creates a fixed dev user → Actor.
-// LATER: verify session cookie / JWT (Hono middleware, WebCrypto HMAC) or OIDC; same interface.
+// NOW: verify the `pg_session` cookie → look up the sessions row (by SHA-256 of the
+//      token) → load the user → Actor. No/invalid/expired session → 401
+//      { error, code: "Unauthorized" } on every /api route except /api/health and
+//      /api/auth/register|login.
+// LOCAL DEV ONLY: when the DEV_AUTH=1 var is set in .dev.vars (never in production),
+//      the old X-Dev-User header still resolves a user for API testing.
 ```
 
-- Every API handler receives the `Actor`; **no route trusts client-supplied user ids** (Postiz lesson: resolve identity server-side per request).
-- All project queries filter membership via `project_members` (ownership checks are data-driven, not identity-driven) — so whatever auth lands later, authorization logic is already correct.
-- `users` rows are created on first sight (dev stub now; login later upserts).
-- Adding real auth later = swap one file + registration/login routes. No schema or route changes.
+- Every API handler still receives the `Actor`; **no route trusts client-supplied user ids** (Postiz lesson: resolve identity server-side per request).
+- All project queries still filter membership via `project_members` (ownership checks are data-driven, not identity-driven).
+
+**Credentials.** `POST /api/auth/register { email, password, name? }` and `POST /api/auth/login { email, password }`. Passwords hashed with WebCrypto **PBKDF2-SHA256** — 16-byte random salt, 32-byte derived key, iteration count stored inside the hash string (`pbkdf2-sha256$<iter>$<salt>$<hash>`, PHC-style) so it can be raised later without a migration. Verification is constant-time. Login failures return one generic `InvalidCredentials` — never revealing whether the email exists.
+
+**Sessions.** Login/register mint a 256-bit random token (`crypto.getRandomValues`), set it as an `HttpOnly; Secure; SameSite=Lax` cookie (`pg_session`, 30 days), and store only **SHA-256(token)** in D1 — a database leak must not yield usable sessions. Expiry slides: a session used in the second half of its life gets extended. `POST /api/auth/logout` deletes the row and clears the cookie; expired rows are deleted lazily on access.
+
+**Brute force.** Login is rate-limited by reusing the Phase 6 D1 fixed-window limiter, keyed per email (e.g. 10 attempts / 5 min → 429 `RateLimited`) — a key generalization of the existing helper, not a new mechanism.
+
+**CSRF posture.** `SameSite=Lax` cookie + every mutating call is same-origin `fetch` with `application/json` — adequate for this iteration; revisit only if cross-site embedding becomes a use case.
+
+**Interplay with existing features (all preserved):**
+- `users` rows are still created lazily: inviting an unregistered email via members creates a **passwordless placeholder**; that person claims the account by registering with that email. The members list marks such users "(invite pending)".
+- Registering an email that already has a password → 400 `EmailTaken`. Registering a passwordless (placeholder) email claims it.
+- What Phase 1 promised holds: this is one middleware swap + auth routes + two UI pages + migration `0005`. No changes to the project/brief/ai-config/prompts/ideas routes or their authorization.
 
 ---
 
@@ -173,8 +200,9 @@ generateCompletion({ apiKey, model, messages, json?: boolean }): Promise<string>
 | `/projects/:id/ai-config` | **AI config** | OpenRouter API key (masked, replace-not-view), and a model picker per task type (task list rendered from a registry, so future tasks appear automatically). Includes a "Test connection" button (cheap 1-token call). |
 | `/projects/:id/prompts` | **Prompts** | All prompt templates for the project; each shows the global default (read-only reference) and an editable override; reset-to-default action; variables documented inline. |
 | `/projects/:id/ideas` | **Idea generation** | Optional topic hint + count selector → Generate → results stored and listed (title + angle), delete, regenerate. |
+| `/login`, `/register` | **Auth** (Phase 7) | Email + password forms; registering with an invited (passwordless) email claims that account. After login → `/projects`. |
 
-Navigation: minimal top bar with project switcher. No component library — small hand-rolled components + plain CSS (Tailwind optional; decision at scaffold time, default: **no Tailwind, keep dependencies near zero**).
+Navigation: minimal top bar with project switcher, the signed-in email and a Log out button (Phase 7); API 401s (`code: "Unauthorized"`) redirect the SPA to `/login`. No component library — small hand-rolled components + plain CSS (Tailwind optional; decision at scaffold time, default: **no Tailwind, keep dependencies near zero**).
 
 ---
 
@@ -220,13 +248,22 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - README update; final `wrangler deploy` + smoke test via system Chromium (`--dump-dom` / screenshot, AGENTS.md rule 5).
 - **Checkpoint:** deployed URL usable end-to-end; deploy step documented in README.
 
+### Phase 7 — Authentication: email + password  *(medium)* — **added 2026-10-01, not yet implemented**
+- Migration `0005`: nullable `users.password_hash` (PHC-style string) + `sessions` table.
+- `src/auth/passwords.ts` (WebCrypto PBKDF2-SHA256 hash/verify, constant-time compare) and `src/auth/sessions.ts` (mint/verify/revoke, cookie helpers).
+- `resolveActor` swap: `pg_session` cookie → Actor; `X-Dev-User` honored only when `DEV_AUTH=1` (local `.dev.vars`, never in production); unauthenticated `/api` calls → 401 `code:"Unauthorized"`.
+- Endpoints: `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me` — zod-validated; login rate-limited (10 / 5 min per email).
+- UI: `/login`, `/register` pages; top bar shows account email + Log out; SPA redirects to `/login` on 401; members list marks invited-but-unregistered accounts; invited email claiming per §4.
+- README auth section; deploy + Chromium smoke (register → login → share → second profile).
+- **Checkpoint:** on the deployed URL with a clean browser profile: A registers, creates a project, shares it with B's email; B registers (claims the placeholder) and sees the shared project; `X-Dev-User` is ignored in production.
+
 ---
 
 ## 8. Assumptions & open questions
 
 | # | Assumption (default) | Override? |
 |---|---|---|
-| 1 | No real login in this iteration — dev header selects the account. | Phase 1 |
+| 1 | ~~No real login in this iteration — dev header selects the account.~~ Superseded by the 2026-10-01 revision: Phase 7 adds email + password auth; the dev header survives only for local dev behind `DEV_AUTH=1`. | Phase 7 |
 | 2 | Tenancy = users + projects + members now; companies/orgs later is a small migration because all checks go through `project_members`. | §3 |
 | 3 | Roles kept to `owner` / `editor` (no viewer/admin). | §3 |
 | 4 | React SPA (no SSR) — simplest CF setup, fine for a logged-in tool. | §2 |
@@ -235,4 +272,4 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 | 7 | No Tailwind/component library — minimal hand-rolled UI. | §6 |
 | 8 | Task registry starts with `idea_generation` only; structure supports `outline`, `draft`, `titles` etc. later. | §5 |
 
-**Approval requested.** On approval, Phase 0 starts and each subsequent phase proceeds in order; any override to the assumptions above should be noted before Phase 1 (schema decisions harden there).
+**Status note (2026-10-01 revision).** Phases 0–6 are implemented, deployed, and pushed. Phase 7 (email + password authentication, §4 + §7 above) starts on the user's go-ahead. Its schema additions are purely additive, so no decision made in earlier phases reopens.
