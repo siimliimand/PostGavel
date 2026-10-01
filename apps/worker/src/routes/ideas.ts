@@ -19,7 +19,12 @@ const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
 const MAX_COUNT = 10;
 const MAX_TOPIC_HINT_LENGTH = 500;
-const GENERATE_MAX_TOKENS = 4000;
+// Completion budget scales with the requested count: a fixed ceiling truncates
+// high-count replies mid-JSON, which is a guaranteed parse failure. Capped so
+// a maxed-out count cannot produce an oversized provider request.
+const GENERATE_MAX_TOKENS_BASE = 400;
+const GENERATE_MAX_TOKENS_PER_IDEA = 600;
+const GENERATE_MAX_TOKENS_CAP = 8000;
 const LIST_LIMIT = 200;
 const SYSTEM_PROMPT_KEY = "system";
 const IDEAS_PROMPT_KEY = "article_ideas";
@@ -39,6 +44,14 @@ async function resolvePromptBody(db: Db, projectId: string, key: string): Promis
     .where(and(eq(promptTemplates.projectId, projectId), eq(promptTemplates.key, key)))
     .limit(1);
   return overrideRow?.body ?? defaultRow.body;
+}
+
+/** Token ceiling for one generation call at the given idea count. */
+function generateMaxTokens(count: number): number {
+  return Math.min(
+    GENERATE_MAX_TOKENS_CAP,
+    GENERATE_MAX_TOKENS_BASE + GENERATE_MAX_TOKENS_PER_IDEA * count,
+  );
 }
 
 function ideaJson(row: typeof articleIdeas.$inferSelect) {
@@ -141,7 +154,7 @@ ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
           { role: "user", content: userText },
         ],
         json: true,
-        maxTokens: GENERATE_MAX_TOKENS,
+        maxTokens: generateMaxTokens(count),
       });
     } catch (err) {
       if (err instanceof OpenRouterError) {
@@ -156,7 +169,10 @@ ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
   let parsed = parseIdeasJson(content, count);
   let usedRetry = false;
   if (parsed.problem) {
-    // One retry with a stricter instruction, per plan §5.
+    // One retry with a stricter instruction, per plan §5. The raw reply is
+    // logged (truncated) on the first failure only, to make parse drift
+    // diagnosable — replies are model output, never secret material.
+    console.error("[ideas] unparsable model reply:", content.slice(0, 600));
     usedRetry = true;
     const retryContent = await callModel(`${user.text}\n\n${STRICT_RETRY_SUFFIX}`);
     parsed = parseIdeasJson(retryContent, count);
