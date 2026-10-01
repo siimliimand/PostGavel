@@ -8,17 +8,17 @@ import { renderTemplate } from "../ai/prompts";
 import { decryptString } from "../ai/secretbox";
 import { requireProject } from "../auth/access";
 import type { AppEnv } from "../auth/actor";
+import { enforceRateLimit, IDEAS_GENERATE_LIMIT } from "../db/rateLimit";
 import { getDb, type Db } from "../db/client";
 import { articleIdeas, projectAiConfig, promptTemplates } from "../db/schema";
 import { CodedHTTPException } from "./errors";
-import { readJsonObject } from "./helpers";
+import { generateIdeasSchema, ideaParams, parseBody, projectIdParams, validParams } from "./validation";
 
 export const ideaRoutes = new Hono<AppEnv>();
 
 const DEFAULT_COUNT = 5;
 const MIN_COUNT = 1;
 const MAX_COUNT = 10;
-const MAX_TOPIC_HINT_LENGTH = 500;
 // Completion budget scales with the requested count: a fixed ceiling truncates
 // high-count replies mid-JSON, which is a guaranteed parse failure. Capped so
 // a maxed-out count cannot produce an oversized provider request.
@@ -28,6 +28,12 @@ const GENERATE_MAX_TOKENS_CAP = 8000;
 const LIST_LIMIT = 200;
 const SYSTEM_PROMPT_KEY = "system";
 const IDEAS_PROMPT_KEY = "article_ideas";
+
+// Garbage project ids 400 (ValidationError) before any DB lookup. (:ideaId is
+// validated inline on DELETE only — a `use("/…/ideas/:ideaId")` middleware
+// would also capture the literal "generate" segment.)
+ideaRoutes.use("/:projectId", validParams(projectIdParams));
+ideaRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 /** Effective prompt body for a key: the project's override ?? the global default. */
 async function resolvePromptBody(db: Db, projectId: string, key: string): Promise<string> {
@@ -74,26 +80,22 @@ function ideaJson(row: typeof articleIdeas.$inferSelect) {
 ideaRoutes.post("/:projectId/ideas/generate", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
   const actor = c.get("actor");
-  const body = (await readJsonObject(c)) ?? {};
+  // Body is optional; count is clamped (rounded, 1..10) not rejected — only a
+  // non-numeric count is a validation error.
+  const { topic_hint: topicHint = "", count: requestedCount } = await parseBody(c, generateIdeasSchema);
 
-  if ("topic_hint" in body && body.topic_hint !== undefined && typeof body.topic_hint !== "string") {
-    return c.json({ error: "topic_hint must be a string when provided" }, 400);
-  }
-  if (
-    "count" in body &&
-    body.count !== undefined &&
-    (typeof body.count !== "number" || !Number.isFinite(body.count))
-  ) {
-    return c.json({ error: "count must be a number when provided" }, 400);
-  }
+  // Cheap rejection BEFORE any config read / key decrypt / provider call.
+  await enforceRateLimit(
+    getDb(c.env),
+    project.id,
+    IDEAS_GENERATE_LIMIT.action,
+    IDEAS_GENERATE_LIMIT.limit,
+    IDEAS_GENERATE_LIMIT.windowMs,
+  );
 
-  const topicHint = typeof body.topic_hint === "string" ? body.topic_hint.trim() : "";
-  if (topicHint.length > MAX_TOPIC_HINT_LENGTH) {
-    return c.json({ error: `topic_hint must be at most ${MAX_TOPIC_HINT_LENGTH} characters` }, 400);
-  }
   const count = Math.min(
     MAX_COUNT,
-    Math.max(MIN_COUNT, Math.round(typeof body.count === "number" ? body.count : DEFAULT_COUNT)),
+    Math.max(MIN_COUNT, Math.round(requestedCount ?? DEFAULT_COUNT)),
   );
 
   const db = getDb(c.env);
@@ -221,14 +223,18 @@ ideaRoutes.get("/:projectId/ideas", async (c) => {
 });
 
 /** DELETE /api/projects/:id/ideas/:ideaId — editor+, scoped to the project. */
-ideaRoutes.delete("/:projectId/ideas/:ideaId", async (c) => {
-  const { project } = await requireProject(c, c.req.param("projectId"));
-  const removed = await getDb(c.env)
-    .delete(articleIdeas)
-    .where(
-      and(eq(articleIdeas.projectId, project.id), eq(articleIdeas.id, c.req.param("ideaId"))),
-    )
-    .returning();
-  if (removed.length === 0) throw new HTTPException(404, { message: "Idea not found" });
-  return c.body(null, 204);
-});
+ideaRoutes.delete(
+  "/:projectId/ideas/:ideaId",
+  validParams(ideaParams),
+  async (c) => {
+    const { project } = await requireProject(c, c.req.param("projectId"));
+    const removed = await getDb(c.env)
+      .delete(articleIdeas)
+      .where(
+        and(eq(articleIdeas.projectId, project.id), eq(articleIdeas.id, c.req.param("ideaId"))),
+      )
+      .returning();
+    if (removed.length === 0) throw new HTTPException(404, { message: "Idea not found" });
+    return c.body(null, 204);
+  },
+);

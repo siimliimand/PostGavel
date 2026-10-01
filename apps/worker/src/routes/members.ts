@@ -4,9 +4,13 @@ import { requireProject } from "../auth/access";
 import { findOrCreateUser, type AppEnv, type ProjectRole } from "../auth/actor";
 import { getDb } from "../db/client";
 import { projectMembers, users } from "../db/schema";
-import { readJsonObject } from "./helpers";
+import { addMemberSchema, parseBody, projectIdParams, validParams } from "./validation";
 
 export const memberRoutes = new Hono<AppEnv>();
+
+// Garbage project ids 400 (ValidationError) before any DB lookup.
+memberRoutes.use("/:projectId", validParams(projectIdParams));
+memberRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 memberRoutes.get("/:projectId/members", async (c) => {
   const projectId = c.req.param("projectId");
@@ -31,14 +35,9 @@ memberRoutes.post("/:projectId/members", async (c) => {
   const projectId = c.req.param("projectId");
   await requireProject(c, projectId, "owner");
 
-  const body = await readJsonObject(c);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (!email) return c.json({ error: "email must be a non-empty string" }, 400);
-  const role = body.role;
-  if (role !== "owner" && role !== "editor") {
-    return c.json({ error: 'role must be "owner" or "editor"' }, 400);
-  }
+  // Schema validates a real email address and trims/lowercases it, matching
+  // the actor middleware's normalization.
+  const { email, role } = await parseBody(c, addMemberSchema);
 
   const db = getDb(c.env);
   // Lazy user creation, consistent with the actor middleware.

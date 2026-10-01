@@ -108,3 +108,13 @@ export const articleIdeas = sqliteTable("article_ideas", {
     .notNull()
     .references(() => users.id),
 });
+
+// Fixed-window rate limit counters (Phase 6). One row per
+// "{project_id}:{action}", managed entirely by db/rateLimit.ts. A plain D1
+// counter (not the beta Workers ratelimit binding) keeps local dev and prod
+// on the same code path.
+export const rateLimits = sqliteTable("rate_limits", {
+  key: text("key").primaryKey(),
+  windowStart: integer("window_start").notNull(),
+  count: integer("count").notNull(),
+});

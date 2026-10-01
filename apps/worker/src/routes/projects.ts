@@ -11,9 +11,13 @@ import {
   projects,
   promptTemplates,
 } from "../db/schema";
-import { readJsonObject } from "./helpers";
+import { createProjectSchema, parseBody, projectIdParams, updateProjectSchema, validParams } from "./validation";
 
 export const projectRoutes = new Hono<AppEnv>();
+
+// Garbage project ids 400 (ValidationError) before any DB lookup.
+projectRoutes.use("/:projectId", validParams(projectIdParams));
+projectRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 type ProjectRow = typeof projects.$inferSelect;
 
@@ -43,10 +47,7 @@ projectRoutes.get("/", async (c) => {
 });
 
 projectRoutes.post("/", async (c) => {
-  const body = await readJsonObject(c);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) return c.json({ error: "name must be a non-empty string" }, 400);
+  const { name } = await parseBody(c, createProjectSchema);
 
   const actor = c.get("actor");
   const db = getDb(c.env);
@@ -78,37 +79,14 @@ projectRoutes.put("/:projectId", async (c) => {
   const projectId = c.req.param("projectId");
   await requireProject(c, projectId); // any role may edit the brief (editor+)
 
-  const body = await readJsonObject(c);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-
-  // Partial update: only the keys present in the body are applied.
+  // Partial update: only the keys present in the body are applied; the refine
+  // in the schema guarantees at least one recognized key.
+  const fields = await parseBody(c, updateProjectSchema);
   const updates: Partial<Pick<ProjectRow, "name" | "description" | "contentGuidelines" | "contentTypes">> = {};
-
-  if ("name" in body) {
-    const value = body.name;
-    if (typeof value !== "string" || !value.trim()) {
-      return c.json({ error: "name must be a non-empty string" }, 400);
-    }
-    updates.name = value.trim();
-  }
-  if ("description" in body) {
-    if (typeof body.description !== "string") return c.json({ error: "description must be a string" }, 400);
-    updates.description = body.description.trim();
-  }
-  if ("content_guidelines" in body) {
-    if (typeof body.content_guidelines !== "string") {
-      return c.json({ error: "content_guidelines must be a string" }, 400);
-    }
-    updates.contentGuidelines = body.content_guidelines.trim();
-  }
-  if ("content_types" in body) {
-    if (typeof body.content_types !== "string") return c.json({ error: "content_types must be a string" }, 400);
-    updates.contentTypes = body.content_types.trim();
-  }
-
-  if (Object.keys(updates).length === 0) {
-    return c.json({ error: "No updatable fields provided (name, description, content_guidelines, content_types)" }, 400);
-  }
+  if (fields.name !== undefined) updates.name = fields.name;
+  if (fields.description !== undefined) updates.description = fields.description;
+  if (fields.content_guidelines !== undefined) updates.contentGuidelines = fields.content_guidelines;
+  if (fields.content_types !== undefined) updates.contentTypes = fields.content_types;
 
   const [updated] = await getDb(c.env)
     .update(projects)

@@ -7,17 +7,27 @@ import { apiKeyHint, decryptString, encryptString } from "../ai/secretbox";
 import { TASKS } from "../ai/tasks";
 import { requireProject } from "../auth/access";
 import type { AppEnv } from "../auth/actor";
+import { AI_CONFIG_TEST_LIMIT, enforceRateLimit } from "../db/rateLimit";
 import { getDb, type Db } from "../db/client";
 import { projectAiConfig, projectModels } from "../db/schema";
 import { CodedHTTPException } from "./errors";
-import { readJsonObject } from "./helpers";
+import {
+  parseBody,
+  projectIdParams,
+  saveApiKeySchema,
+  saveModelsSchema,
+  testConfigSchema,
+  validParams,
+} from "./validation";
 
 export const aiConfigRoutes = new Hono<AppEnv>();
 
-const MAX_KEY_LENGTH = 512;
-const MAX_MODEL_LENGTH = 256;
 const PROBE_MESSAGE = "Reply with the single word: pong";
 const PROBE_MAX_TOKENS = 5;
+
+// Garbage project ids 400 (ValidationError) before any DB lookup.
+aiConfigRoutes.use("/:projectId", validParams(projectIdParams));
+aiConfigRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 type ConfigRow = typeof projectAiConfig.$inferSelect;
 
@@ -67,14 +77,7 @@ aiConfigRoutes.get("/:projectId/ai-config", async (c) => {
 /** PUT /api/projects/:id/ai-config `{ api_key }` — editor+. Encrypts + upserts. */
 aiConfigRoutes.put("/:projectId/ai-config", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
-  const body = await readJsonObject(c);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-
-  const apiKey = typeof body.api_key === "string" ? body.api_key.trim() : "";
-  if (!apiKey) return c.json({ error: "api_key must be a non-empty string" }, 400);
-  if (apiKey.length > MAX_KEY_LENGTH) {
-    return c.json({ error: `api_key must be at most ${MAX_KEY_LENGTH} characters` }, 400);
-  }
+  const { api_key: apiKey } = await parseBody(c, saveApiKeySchema);
 
   const encrypted = await encryptString(apiKey, c.env.ENCRYPTION_KEY);
   const now = Date.now();
@@ -96,36 +99,16 @@ aiConfigRoutes.put("/:projectId/ai-config", async (c) => {
 /** PUT /api/projects/:id/models `{ models: [{ task_type, model }] }` — editor+. */
 aiConfigRoutes.put("/:projectId/models", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
-  const body = await readJsonObject(c);
-  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
-  if (!Array.isArray(body.models)) {
-    return c.json({ error: "models must be an array of { task_type, model }" }, 400);
-  }
+  const { models } = await parseBody(c, saveModelsSchema);
 
-  const taskKeys = TASKS.map((t) => t.key);
+  // Registry membership, shapes and caps are enforced by the schema; the one
+  // cross-row rule left here is task_type uniqueness.
   const seen = new Set<string>();
-  const rows: { taskType: string; model: string }[] = [];
-  for (const entry of body.models) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return c.json({ error: "Each models entry must be an object with task_type and model" }, 400);
-    }
-    const { task_type, model } = entry as { task_type?: unknown; model?: unknown };
-    if (typeof task_type !== "string" || !TASKS.some((t) => t.key === task_type)) {
-      return c.json({ error: `task_type must be one of: ${taskKeys.join(", ")}` }, 400);
-    }
-    if (typeof model !== "string" || !model.trim()) {
-      return c.json({ error: `model for task "${task_type}" must be a non-empty string` }, 400);
-    }
-    if (model.trim().length > MAX_MODEL_LENGTH) {
-      return c.json(
-        { error: `model for task "${task_type}" must be at most ${MAX_MODEL_LENGTH} characters` },
-        400,
-      );
-    }
-    if (seen.has(task_type)) return c.json({ error: `Duplicate task_type "${task_type}"` }, 400);
-    seen.add(task_type);
-    rows.push({ taskType: task_type, model: model.trim() });
+  for (const entry of models) {
+    if (seen.has(entry.task_type)) return c.json({ error: `Duplicate task_type "${entry.task_type}"` }, 400);
+    seen.add(entry.task_type);
   }
+  const rows = models.map((entry) => ({ taskType: entry.task_type, model: entry.model }));
 
   const db = getDb(c.env);
   if (rows.length > 0) {
@@ -155,18 +138,16 @@ aiConfigRoutes.put("/:projectId/models", async (c) => {
 aiConfigRoutes.post("/:projectId/ai-config/test", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
   // Body is optional; a missing/empty body means "use the saved configuration".
-  const body = (await readJsonObject(c)) ?? {};
+  const { model: modelOverride } = await parseBody(c, testConfigSchema);
 
-  let modelOverride: string | undefined;
-  if ("model" in body) {
-    if (typeof body.model !== "string" || !body.model.trim()) {
-      return c.json({ error: "model must be a non-empty string when provided" }, 400);
-    }
-    modelOverride = body.model.trim();
-    if (modelOverride.length > MAX_MODEL_LENGTH) {
-      return c.json({ error: `model must be at most ${MAX_MODEL_LENGTH} characters` }, 400);
-    }
-  }
+  // Cheap rejection BEFORE any config read / key decrypt / provider call.
+  await enforceRateLimit(
+    getDb(c.env),
+    project.id,
+    AI_CONFIG_TEST_LIMIT.action,
+    AI_CONFIG_TEST_LIMIT.limit,
+    AI_CONFIG_TEST_LIMIT.windowMs,
+  );
 
   const db = getDb(c.env);
   const [configRow]: (ConfigRow | undefined)[] = await db

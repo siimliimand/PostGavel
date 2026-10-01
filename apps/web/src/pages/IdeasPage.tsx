@@ -19,7 +19,7 @@ const FRIENDLY_ERRORS: Record<string, string> = {
   NotConfigured: "No OpenRouter API key configured for this project.",
   InvalidKey: "OpenRouter rejected this project's API key.",
   NoCredits: "The OpenRouter account for this project has no credits.",
-  RateLimited: "Rate limited by OpenRouter — try again shortly.",
+  RateLimited: "Rate limited — wait a few seconds and try again.",
   InvalidModel: "Unknown or unavailable model.",
   ProviderError: "OpenRouter request failed — try again shortly.",
   NetworkError: "Could not reach OpenRouter (network error).",
@@ -37,6 +37,10 @@ type GenerateError = {
 
 function toGenerateError(err: unknown): GenerateError {
   const detail = err instanceof Error ? err.message : String(err);
+  // HTTP 429 (this app's D1 limiter or OpenRouter itself) gets one friendly line.
+  if (err instanceof ApiError && err.status === 429) {
+    return { message: FRIENDLY_ERRORS.RateLimited, detail, configLink: false };
+  }
   if (err instanceof ApiError && err.code && FRIENDLY_ERRORS[err.code]) {
     return {
       message: FRIENDLY_ERRORS[err.code],

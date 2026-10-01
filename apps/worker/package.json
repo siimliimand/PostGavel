@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "drizzle-orm": "latest",
-    "hono": "^4"
+    "hono": "^4",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "drizzle-kit": "latest",

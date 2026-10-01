@@ -6,14 +6,17 @@ import type { AppEnv } from "../auth/actor";
 import { getDb, type Db } from "../db/client";
 import { promptTemplates } from "../db/schema";
 import { CodedHTTPException } from "./errors";
-import { readJsonObject } from "./helpers";
+import { parseBody, projectIdParams, savePromptSchema, validParams } from "./validation";
 
 export const promptRoutes = new Hono<AppEnv>();
 
-const MAX_BODY_LENGTH = 20_000;
 // Phase 4 stand-ins for the request-time variables; Phase 5 passes the real
 // count from the generate request and the topic hint from the form.
 const STAND_IN_VARS: Record<string, string> = { count: "5", topic_hint: "" };
+
+// Garbage project ids 400 (ValidationError) before any DB lookup.
+promptRoutes.use("/:projectId", validParams(projectIdParams));
+promptRoutes.use("/:projectId/*", validParams(projectIdParams));
 
 type PromptRow = typeof promptTemplates.$inferSelect;
 
@@ -92,13 +95,9 @@ promptRoutes.put("/:projectId/prompts/:key", async (c) => {
   const { project } = await requireProject(c, c.req.param("projectId"));
   const key = c.req.param("key");
 
-  const payload = await readJsonObject(c);
-  if (!payload) return c.json({ error: "Invalid JSON body" }, 400);
-  if (typeof payload.body !== "string") return c.json({ error: "body must be a string" }, 400);
-  if (!payload.body.trim()) return c.json({ error: "body must be a non-empty string" }, 400);
-  if (payload.body.length > MAX_BODY_LENGTH) {
-    return c.json({ error: `body must be at most ${MAX_BODY_LENGTH} characters` }, 400);
-  }
+  // Schema enforces the raw length cap and trim-checked non-emptiness; the
+  // body is stored exactly as sent (never trimmed).
+  const { body } = await parseBody(c, savePromptSchema);
 
   const db = getDb(c.env);
   // The universe of prompt keys is the global defaults; overriding an unknown
@@ -122,13 +121,13 @@ promptRoutes.put("/:projectId/prompts/:key", async (c) => {
       // Copied from the global row at override time; the default stays
       // authoritative for variables/ordering.
       name: defaultRow.name,
-      body: payload.body,
+      body,
       createdAt: now,
       updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [promptTemplates.projectId, promptTemplates.key],
-      set: { name: defaultRow.name, body: payload.body, updatedAt: now },
+      set: { name: defaultRow.name, body, updatedAt: now },
     })
     .returning();
   return c.json(promptJson(defaultRow, overrideRow));

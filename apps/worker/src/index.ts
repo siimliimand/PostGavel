@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { resolveActor, type AppEnv } from "./auth/actor";
 import { aiConfigRoutes } from "./routes/aiConfig";
 import { CodedHTTPException } from "./routes/errors";
@@ -17,18 +18,27 @@ app.get("/api/health", (c) =>
 
 app.get("/api/hello", (c) => c.json({ message: "Hello from PostGavel worker" }));
 
-// Every failure answers { "error": "message" } (plus "code" where a typed code
-// exists, e.g. OpenRouter errors); requireProject and validation raise
-// HTTPException, anything unexpected becomes a JSON 500.
+// Every failure answers the error envelope `{ "error": "message" }` (plus
+// "code" where a typed code exists: OpenRouter errors, ValidationError,
+// RateLimited, …); requireProject and validation raise HTTPException, anything
+// unexpected becomes a JSON 500 with no internals leaked. Extra headers on
+// CodedHTTPException (Retry-After) are merged into the JSON response.
 app.onError((err, c) => {
+  const respond = (body: Record<string, string>, status: ContentfulStatusCode) => {
+    const res = c.json(body, status);
+    if (err instanceof CodedHTTPException && err.extraHeaders) {
+      for (const [key, value] of Object.entries(err.extraHeaders)) res.headers.set(key, value);
+    }
+    return res;
+  };
   if (err instanceof CodedHTTPException) {
-    return c.json({ error: err.message, code: err.code }, err.status);
+    return respond({ error: err.message, code: err.code }, err.status);
   }
   if (err instanceof HTTPException) {
-    return c.json({ error: err.message }, err.status);
+    return respond({ error: err.message }, err.status);
   }
   console.error(err);
-  return c.json({ error: "Internal server error" }, 500);
+  return respond({ error: "Internal server error" }, 500);
 });
 
 // Authenticated API. Health/hello above stay DB-free; everything in here

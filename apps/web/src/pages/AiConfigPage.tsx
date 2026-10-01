@@ -13,7 +13,7 @@ import { Link } from "../router";
 const FRIENDLY_TEST_ERRORS: Record<string, string> = {
   InvalidKey: "OpenRouter rejected this API key",
   NoCredits: "This OpenRouter account has no credits",
-  RateLimited: "Rate limited — try again shortly",
+  RateLimited: "Rate limited — wait a few seconds and try again",
   InvalidModel: "Unknown or unavailable model",
   NotConfigured: "No API key saved for this project yet — save a key first",
 };
@@ -23,6 +23,10 @@ type TestOutcome =
   | { kind: "failed"; message: string };
 
 function friendlyTestError(err: unknown): string {
+  // HTTP 429 (this app's D1 limiter or OpenRouter itself) gets one friendly line.
+  if (err instanceof ApiError && err.status === 429) {
+    return FRIENDLY_TEST_ERRORS.RateLimited;
+  }
   if (err instanceof ApiError && err.code && FRIENDLY_TEST_ERRORS[err.code]) {
     return FRIENDLY_TEST_ERRORS[err.code];
   }
