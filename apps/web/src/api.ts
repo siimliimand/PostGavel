@@ -177,6 +177,8 @@ export type ArticleIdea = {
   id: string;
   title: string;
   angle: string;
+  /** Set when the idea was generated scoped to an audience problem. */
+  problem_id: string | null;
   /** ISO timestamp. */
   created_at: string;
   created_by: string;
@@ -185,6 +187,8 @@ export type ArticleIdea = {
 export type GenerateIdeasInput = {
   topic_hint?: string;
   count?: number;
+  /** Phase 9: scope generation to one audience problem of this project. */
+  problem_id?: string;
 };
 
 export type GenerateIdeasResult = {
@@ -214,6 +218,68 @@ export function generateIdeas(
 /** Deletes one idea (204). The list refetches on the page afterwards. */
 export async function deleteIdea(projectId: string, ideaId: string): Promise<void> {
   await fetchJson<null>(`/api/projects/${projectId}/ideas/${encodeURIComponent(ideaId)}`, {
+    method: "DELETE",
+  });
+}
+
+// Audience problems (Phase 9): problems-first ideation. Generate, add by hand,
+// select one, then scope idea generation to it.
+
+export type ProblemSource = "ai" | "manual";
+
+export type Problem = {
+  id: string;
+  title: string;
+  description: string | null;
+  /** Realistic search queries, separated by semicolons. */
+  search_signals: string | null;
+  source: ProblemSource;
+  /** ISO timestamp. */
+  created_at: string;
+};
+
+export type CreateProblemInput = {
+  title: string;
+  description?: string;
+  search_signals?: string;
+};
+
+export type GenerateProblemsInput = { count?: number };
+
+export type GenerateProblemsResult = {
+  problems: Problem[];
+  model: string;
+  used_retry: boolean;
+  prompt_warnings?: string[];
+};
+
+export function fetchProblems(projectId: string): Promise<Problem[]> {
+  return fetchJson<Problem[]>(`/api/projects/${projectId}/problems`);
+}
+
+export function createProblem(
+  projectId: string,
+  input: CreateProblemInput,
+): Promise<Problem> {
+  return fetchJson<Problem>(`/api/projects/${projectId}/problems`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function generateProblems(
+  projectId: string,
+  input: GenerateProblemsInput = {},
+): Promise<GenerateProblemsResult> {
+  return fetchJson<GenerateProblemsResult>(`/api/projects/${projectId}/problems/generate`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Deletes one problem (204). Ideas scoped to it stay, minus the link. */
+export async function deleteProblem(projectId: string, problemId: string): Promise<void> {
+  await fetchJson<null>(`/api/projects/${projectId}/problems/${encodeURIComponent(problemId)}`, {
     method: "DELETE",
   });
 }

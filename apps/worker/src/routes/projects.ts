@@ -5,6 +5,7 @@ import type { AppEnv } from "../auth/actor";
 import { getDb } from "../db/client";
 import {
   articleIdeas,
+  problems,
   projectAiConfig,
   projectMembers,
   projectModels,
@@ -149,12 +150,15 @@ projectRoutes.delete("/:projectId", async (c) => {
   const db = getDb(c.env);
   // D1 enforces foreign keys and we don't rely on ON DELETE cascade, so child
   // rows go first - all statements in one atomic batch with the project row.
+  // (ideas.problem_id is ON DELETE SET NULL, but the ideas rows are already
+  // gone by the time problems are deleted.)
   await db.batch([
     db.delete(projectMembers).where(eq(projectMembers.projectId, project.id)),
     db.delete(projectAiConfig).where(eq(projectAiConfig.projectId, project.id)),
     db.delete(projectModels).where(eq(projectModels.projectId, project.id)),
     db.delete(promptTemplates).where(eq(promptTemplates.projectId, project.id)),
     db.delete(articleIdeas).where(eq(articleIdeas.projectId, project.id)),
+    db.delete(problems).where(eq(problems.projectId, project.id)),
     db.delete(projects).where(eq(projects.id, project.id)),
   ]);
   return c.body(null, 204);

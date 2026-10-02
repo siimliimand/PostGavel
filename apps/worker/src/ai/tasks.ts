@@ -19,6 +19,12 @@ export const TASKS: TaskDef[] = [
     promptKey: "article_ideas",
     defaultModel: "openai/gpt-4o-mini",
   },
+  {
+    key: "problem_generation",
+    label: "Audience problem generation",
+    promptKey: "audience_problems",
+    defaultModel: "openai/gpt-4o-mini",
+  },
 ];
 
 export const TASK_KEYS: readonly string[] = TASKS.map((t) => t.key);

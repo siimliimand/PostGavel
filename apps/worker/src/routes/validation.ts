@@ -24,6 +24,9 @@ const MAX_MODEL = 256;
 const MAX_MODEL_ENTRIES = 32;
 const MAX_PROMPT_BODY = 20_000;
 const MAX_TOPIC_HINT = 500;
+const MAX_PROBLEM_TITLE = 120;
+const MAX_PROBLEM_DESCRIPTION = 2000;
+const MAX_PROBLEM_SEARCH_SIGNALS = 1000;
 
 /** Audience expertise levels (Phase 8 brief). Stored verbatim in D1. */
 export const AUDIENCE_EXPERTISE = ["beginners", "general", "practitioners", "experts"] as const;
@@ -88,6 +91,7 @@ export function validParams<S extends z.ZodType>(schema: S): MiddlewareHandler<A
 
 export const projectIdParams = z.object({ projectId: z.uuid() });
 export const ideaParams = z.object({ projectId: z.uuid(), ideaId: z.uuid() });
+export const problemParams = z.object({ projectId: z.uuid(), problemId: z.uuid() });
 
 // --- Bodies ---------------------------------------------------------------
 
@@ -211,13 +215,46 @@ export const testConfigSchema = z.object({
     .optional(),
 });
 
+/** Shared generate body: count is strictly validated (1..10, integer); the
+ * registry's defaultCount applies when absent. Rejecting (instead of the old
+ * clamp) keeps every generation task on one predictable contract. */
+const generateCountSchema = z
+  .number({ message: "count must be a number when provided" })
+  .int("count must be a whole number")
+  .min(1, "count must be at least 1")
+  .max(10, "count must be at most 10")
+  .optional();
+
 export const generateIdeasSchema = z.object({
   topic_hint: z
     .string()
     .trim()
     .max(MAX_TOPIC_HINT, `topic_hint must be at most ${MAX_TOPIC_HINT} characters`)
     .optional(),
-  // count is clamped (rounded, 1..10) by the route, not rejected; only
-  // non-numeric values are a validation error.
-  count: z.number({ message: "count must be a number when provided" }).optional(),
+  count: generateCountSchema,
+  // Phase 9: scope the ideas to one audience problem. The route validates that
+  // it belongs to this project (400 ValidationError otherwise).
+  problem_id: z.uuid().optional(),
+});
+
+export const generateProblemsSchema = z.object({
+  count: generateCountSchema,
+});
+
+export const createProblemSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, "title must be a non-empty string")
+    .max(MAX_PROBLEM_TITLE, `title must be at most ${MAX_PROBLEM_TITLE} characters`),
+  description: z
+    .string()
+    .trim()
+    .max(MAX_PROBLEM_DESCRIPTION, `description must be at most ${MAX_PROBLEM_DESCRIPTION} characters`)
+    .optional(),
+  search_signals: z
+    .string()
+    .trim()
+    .max(MAX_PROBLEM_SEARCH_SIGNALS, `search_signals must be at most ${MAX_PROBLEM_SEARCH_SIGNALS} characters`)
+    .optional(),
 });

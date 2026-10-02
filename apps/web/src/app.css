@@ -485,6 +485,132 @@ h2 {
   background: #fdecea;
 }
 
+/* Problems section (Phase 9): selectable problem cards, source badges, chips */
+.problem-actions {
+  margin: 0.75rem 0;
+}
+
+.problem-list {
+  list-style: none;
+  margin: 0.75rem 0 1rem;
+  padding: 0;
+}
+
+.problem-card {
+  background: #fff;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  padding: 1.1rem 1.5rem;
+  margin-bottom: 0.85rem;
+  cursor: pointer;
+}
+
+.problem-card:hover {
+  border-color: #a5b4fc;
+}
+
+.problem-card:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.problem-card.selected {
+  border-color: #4f46e5;
+  outline: 2px solid #4f46e5;
+  outline-offset: -1px;
+  background: #eef2ff;
+}
+
+.problem-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.problem-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.02rem;
+}
+
+.problem-desc {
+  margin: 0 0 0.7rem;
+  white-space: pre-wrap;
+}
+
+.source-badge {
+  flex-shrink: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.source-badge.source-manual {
+  background: #f1f3f6;
+  color: #6b7280;
+}
+
+.problem-card .chips {
+  margin-bottom: 0.7rem;
+}
+
+.problem-card .chip {
+  background: #f1f3f6;
+  color: #6b7280;
+}
+
+.problem-form h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.problem-form {
+  margin-top: 1rem;
+}
+
+.problem-form .form-actions {
+  margin-top: 0.25rem;
+}
+
+.problem-form .error {
+  margin-bottom: 0;
+}
+
+.clear-link {
+  margin-left: 0.75rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #4f46e5;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 400;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Small problem tag on ideas generated for a selected problem */
+.problem-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 0.7rem;
+  font-weight: 400;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 /* Auth pages (/login, /register) — no top bar, one centered card */
 .auth-container {
   max-width: 22rem;

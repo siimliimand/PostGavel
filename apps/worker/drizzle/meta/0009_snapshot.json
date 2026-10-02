@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8d6cf024-0f9a-47d1-896a-6c5b69cb094c",
-  "prevId": "122ea618-fb95-4474-9bf0-57e4889057a4",
+  "id": "7b1b4fa5-4595-493d-a2b7-3b3c6e68fc36",
+  "prevId": "8d6cf024-0f9a-47d1-896a-6c5b69cb094c",
   "tables": {
     "article_ideas": {
       "name": "article_ideas",
@@ -35,6 +35,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "problem_id": {
+          "name": "problem_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -65,12 +72,99 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
+        "article_ideas_problem_id_problems_id_fk": {
+          "name": "article_ideas_problem_id_problems_id_fk",
+          "tableFrom": "article_ideas",
+          "tableTo": "problems",
+          "columnsFrom": [
+            "problem_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "article_ideas_created_by_users_id_fk": {
           "name": "article_ideas_created_by_users_id_fk",
           "tableFrom": "article_ideas",
           "tableTo": "users",
           "columnsFrom": [
             "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "problems": {
+      "name": "problems",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "search_signals": {
+          "name": "search_signals",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'ai'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "problems_project_id_projects_id_fk": {
+          "name": "problems_project_id_projects_id_fk",
+          "tableFrom": "problems",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
           ],
           "columnsTo": [
             "id"

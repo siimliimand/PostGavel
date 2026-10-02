@@ -1,6 +1,7 @@
 # PostGavel — Implementation Plan
 
-> **Status:** APPROVED & EXECUTED — Phases 0–7 are complete, deployed, and pushed.
+> **Status:** APPROVED & EXECUTED — Phases 0–8 are complete, deployed, and pushed.
+> **Revised 2026-10-02:** added **Phase 9 — Problems-first ideation** (audience problems before article ideas; generate/add/select problems, scope ideas to one) after Phase 8; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01 (b):** added **Phase 8 — Structured brief** (real DB columns for tone/audience/rules, chip-based formats UI, expanded prompt context block) after Phase 7 shipped; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01:** added **Phase 7 — Authentication (email + password)** at the user's request; §1/§2/§3/§4/§6/§8 updated accordingly. Phase 7 awaits the user's go-ahead.
 > **Original date:** 2026-10-01. Sources analyzed: AGENTS.md (project rules), `docs/postiz-analysis.md` (Postiz reference study), current repo state (empty scaffold, README title only).
@@ -133,8 +134,19 @@ article_ideas     (id TEXT PK,
                    project_id TEXT -> projects.id,
                    title TEXT,
                    angle TEXT,               -- short description of the idea
+                   problem_id TEXT NULL -> problems.id, -- Phase 9: scope link, ON DELETE SET NULL
                    created_at INTEGER,
                    created_by TEXT -> users.id)
+
+-- audience problems (Phase 9): concrete, observable pains of the project's
+-- audience that the project can credibly address; ideas can be scoped to one.
+problems          (id TEXT PK,
+                   project_id TEXT -> projects.id,
+                   title TEXT,              -- problem statement, ≤120
+                   description TEXT,        -- who feels it, when it bites, why it hurts (≤2000)
+                   search_signals TEXT,     -- ';'-joined realistic queries (≤1000)
+                   source TEXT,             -- 'ai' | 'manual'
+                   created_at INTEGER)
 ```
 
 **Seed data (migration):** global `prompt_templates` rows for every task type, with `{{project_description}}`, `{{content_guidelines}}`, `{{content_types}}`, `{{count}}`, `{{topic_hint}}` variables — so the product works out of the box and users only *edit*, never author from scratch.
@@ -207,7 +219,7 @@ generateCompletion({ apiKey, model, messages, json?: boolean }): Promise<string>
 | `/projects/:id/members` | Sharing | List/add/remove accounts (`email lookup`) on this project, roles owner/editor. |
 | `/projects/:id/ai-config` | **AI config** | OpenRouter API key (masked, replace-not-view), and a model picker per task type (task list rendered from a registry, so future tasks appear automatically). Includes a "Test connection" button (cheap 1-token call). |
 | `/projects/:id/prompts` | **Prompts** | All prompt templates for the project; each shows the global default (read-only reference) and an editable override; reset-to-default action; variables documented inline. |
-| `/projects/:id/ideas` | **Idea generation** | Optional topic hint + count selector → Generate → results stored and listed (title + angle), delete, regenerate. |
+| `/projects/:id/ideas` | **Idea generation** | Problems section on top (AI-generated or manual audience problems; click to select, clear link to deselect — selection survives a reload) → optional topic hint + count selector → Generate (scoped to the selected problem when one is selected) → results stored and listed (title + angle, problem tag when scoped), delete, regenerate. |
 | `/login`, `/register` | **Auth** (Phase 7) | Email + password forms; registering with an invited (passwordless) email claims that account. After login → `/projects`. |
 
 Navigation: minimal top bar with project switcher, the signed-in email and a Log out button (Phase 7); API 401s (`code: "Unauthorized"`) redirect the SPA to `/login`. No component library — small hand-rolled components + plain CSS (Tailwind optional; decision at scaffold time, default: **no Tailwind, keep dependencies near zero**).
@@ -273,6 +285,14 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - UI: brief page rebuilt into cards — About / Audience & voice (tone select with presets + `Custom…` reveal, expertise select, audience description) / Rules (collapsed always/never) / Formats (preset chips + add-custom, case-insensitive matching so legacy `"Seo blog post"` shows as the `SEO article` chip; "Additional notes" textarea below). Save remains one PUT with all fields.
 - **Checkpoint:** with brief fields set, the resolved prompts show each value on its labeled line (`Tone of voice: Professional`); cleared fields render empty after the colon; chips persist across reload; remote migrate + deploy, throwaway-project smoke, real project untouched.
 
+### Phase 9 — Problems-first ideation *(small-medium)* — **added 2026-10-02**
+- Migration `0008` (drizzle-kit): new `problems` table (`title` ≤120, `description` ≤2000, `search_signals` ≤1000, `source` `'ai'|'manual'` default `'ai'`) plus nullable `article_ideas.problem_id` (FK → problems, ON DELETE SET NULL — deleting a problem keeps its ideas, minus the link). Additive only.
+- Migration `0009` (hand-written, pattern of 0003/0007): seeds the global default `audience_problems` prompt (same context block as 0007) and adds exactly one line to the global `article_ideas` template: `- Problem to address (may be empty): {{problem_context}}`.
+- Task registry (`src/tasks/registry.ts`): maps generation task → `{ promptKey, modelTask, defaultCount/maxCount, rateLimit, parse, persist }` with entries `article_ideas` and `audience_problems`, plus shared `runGeneration()` (rate limit → key decrypt → model + prompt resolution → provider call → lenient parse with ONE strict retry → atomic persist). Both generate routes delegate to it; typed provider errors (`InvalidKey`…) unchanged. The lenient JSON parsing became a shared alias-aware helper (`src/ai/json.ts`: `<think>` strip, fence strip, json_object wrapper unwrap, field aliases); ideas and problems keep thin per-task wrappers. `problem_generation` joins the model-per-task registry (`src/ai/tasks.ts`), so AI config grows a second model picker automatically.
+- API: `GET/POST /api/projects/:id/problems` (list newest first; manual add `source='manual'`), `POST /api/projects/:id/problems/generate` `{count?}` (1..10, default 5; appends `source='ai'` rows), `DELETE /api/projects/:id/problems/:problemId`. `POST /api/projects/:id/ideas/generate` gains optional `problem_id` (must belong to the project, else 400): builds `problem_context` ("Problem to address: … Search signals: …") and stores created ideas with the link; without it, unscoped generation as before (path + response shape unchanged, plus `problem_id` echo). Generate counts are now strictly validated (integer 1..10) instead of clamped. Rate limit 5/min per project per task (`<projectId>:problems_generate` / `:ideas_generate`).
+- UI: Ideas page opens with an **Audience problems** section — cards (title, description, search-signal chips, AI/Manual badge, delete), "Generate problems" button (fixed 5), inline manual-add form; clicking a card selects it (radio feel, survives a reload) and switches the ideas button to "Generate ideas for this problem"; ideas generated for a problem carry a small problem tag.
+- **Checkpoint:** local migrate (0008+0009), parser fixture (`<think>` + wrapper + alias keys for both tasks), API round (manual add/list/delete, 400s, typed `InvalidKey`, resolved prompts with the new line + `{{wibble}}` warning), Chromium click-through (add/select/persist/delete), remote migrate + deploy, throwaway-project smoke, live scoped generation on the real project (user-approved).
+
 ---
 
 ## 8. Assumptions & open questions
@@ -288,4 +308,4 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 | 7 | No Tailwind/component library — minimal hand-rolled UI. | §6 |
 | 8 | Task registry starts with `idea_generation` only; structure supports `outline`, `draft`, `titles` etc. later. | §5 |
 
-**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review.
+**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 9 (problems-first ideation) is implemented and deployed from this working tree, left uncommitted for PM review.

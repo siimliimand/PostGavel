@@ -2,10 +2,11 @@
 
 A simple AI content workspace: create **projects**, describe what each one is
 about, configure **OpenRouter** (API key + which model does which task), tune
-**every prompt**, and generate **long-form article ideas** — all on Cloudflare.
-Status: **phases 0–8 complete** (scaffold → schema/tenancy → brief → AI config
+**every prompt**, and generate **long-form article ideas** — starting from your
+audience's **problems** — all on Cloudflare.
+Status: **phases 0–9 complete** (scaffold → schema/tenancy → brief → AI config
 → prompts → idea generation → hardening → email + password authentication →
-structured brief).
+structured brief → problems-first ideation).
 See [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Stack
@@ -90,8 +91,13 @@ applied (step 3) → `ENCRYPTION_KEY` secret set (step 4). Changing
    and use **Test connection**.
 3. **Prompts** (`/projects/:id/prompts`): every prompt sent to OpenRouter is
    editable per project; `{{variables}}` are substituted from the brief.
-4. **Ideas** (`/projects/:id/ideas`): pick a count, optionally a topic hint,
-   generate, and manage the stored ideas.
+4. **Problems** (top of `/projects/:id/ideas`): generate concrete audience
+   problems from the brief (or add one manually), then **click a problem to
+   select it** — idea generation is then scoped to it (the selection survives
+   a reload; click again or "Clear selection" to go unscoped).
+5. **Ideas** (`/projects/:id/ideas`): pick a count, optionally a topic hint,
+   generate, and manage the stored ideas. Ideas generated for a selected
+   problem keep a small problem tag.
 
 ## Authentication
 
@@ -171,11 +177,16 @@ otherwise `404` (no existence leak) / `403`.
 | `GET /api/projects/:id/prompts/resolved` | — | — |
 | `PUT /api/projects/:id/prompts/:key` | `{ body }` (1–20 000 chars) | `ValidationError`; `400` unknown key |
 | `DELETE /api/projects/:id/prompts/:key` | — | `NoOverride` |
-| `POST /api/projects/:id/ideas/generate` | optional `{ topic_hint?, count? }` (count clamped to 1–10) | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
+| `POST /api/projects/:id/problems/generate` | optional `{ count? }` (1–10, default 5) | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
+| `GET /api/projects/:id/problems` | — | — |
+| `POST /api/projects/:id/problems` | `{ title, description?, search_signals? }` (title 1–120; description ≤2000; search_signals ≤1000) — stored with `source: "manual"` | `ValidationError` |
+| `DELETE /api/projects/:id/problems/:problemId` | — | — (ideas scoped to it keep their `problem_id` cleared) |
+| `POST /api/projects/:id/ideas/generate` | optional `{ topic_hint?, count?, problem_id? }` (count 1–10; `problem_id` must belong to this project, else 400 — scopes the ideas via `{{problem_context}}` and stores the link) | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
 | `GET /api/projects/:id/ideas` | — | — |
 | `DELETE /api/projects/:id/ideas/:ideaId` | — | — |
 
 Rate limits (D1 fixed-window counters): per project — idea generation **5/min**
-(`POST …/ideas/generate`), AI config test **10/min** (`POST
+(`POST …/ideas/generate`), problem generation **5/min** (`POST
+…/problems/generate`), AI config test **10/min** (`POST
 …/ai-config/test`); per email — login **10 per 5 min**. Exceeding them returns
 `429` with code `RateLimited` and a `Retry-After` header.

@@ -128,7 +128,9 @@ export const promptTemplates = sqliteTable(
   ],
 );
 
-// Generated output of this iteration (ideas only, no drafts yet).
+// Generated output of this iteration. problem_id (Phase 9) links an idea to
+// the audience problem it was scoped to; deleting the problem leaves the idea
+// in place with the link cleared (ON DELETE SET NULL).
 export const articleIdeas = sqliteTable("article_ideas", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -136,10 +138,27 @@ export const articleIdeas = sqliteTable("article_ideas", {
     .references(() => projects.id),
   title: text("title").notNull(),
   angle: text("angle").notNull(),
+  problemId: text("problem_id").references(() => problems.id, { onDelete: "set null" }),
   createdAt: integer("created_at").notNull(),
   createdBy: text("created_by")
     .notNull()
     .references(() => users.id),
+});
+
+// Audience problems (Phase 9): concrete, observable problems the project's
+// target audience has that the project can credibly address. Problems-first
+// ideation: generate/select a problem, then scope article ideas to it.
+// source: 'ai' (generated) | 'manual' (added by hand).
+export const problems = sqliteTable("problems", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  searchSignals: text("search_signals"),
+  source: text("source").notNull().default("ai"),
+  createdAt: integer("created_at").notNull(),
 });
 
 // Fixed-window rate limit counters (Phase 6). One row per
