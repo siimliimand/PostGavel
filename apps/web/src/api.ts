@@ -306,6 +306,8 @@ export type Piece = {
   model: string | null;
   /** ISO timestamp. */
   created_at: string;
+  /** Publish kit (Phase 11): nested derivatives, [] on outlines. */
+  derivatives: Derivative[];
 };
 
 export function fetchPieces(projectId: string): Promise<Piece[]> {
@@ -347,6 +349,61 @@ export async function deletePiece(projectId: string, pieceId: string): Promise<v
   await fetchJson<null>(`/api/projects/${projectId}/pieces/${encodeURIComponent(pieceId)}`, {
     method: "DELETE",
   });
+}
+
+// Publish kit derivatives (Phase 11): publishing metadata + social
+// derivatives generated from a finished draft — one cheap AI call each, upsert
+// per (draft, kind) so regenerating replaces.
+
+export type DerivativeKind =
+  | "meta"
+  | "linkedin_post"
+  | "x_thread"
+  | "newsletter_blurb"
+  | "youtube_package";
+
+/** The parsed shape of a `meta` derivative's JSON body. */
+export type MetaPackage = {
+  meta_title: string;
+  meta_description: string;
+  slug: string;
+  excerpt: string;
+};
+
+/** The parsed shape of a `youtube_package` derivative's JSON body. */
+export type YoutubePackage = { titles: string[]; description: string };
+
+export type Derivative = {
+  id: string;
+  draft_piece_id: string;
+  kind: DerivativeKind;
+  /** JSON string for meta / youtube_package; plain text/markdown otherwise. */
+  body: string;
+  model: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GenerateDerivativeResult = {
+  derivative: Derivative;
+  model: string;
+  used_retry: boolean;
+  prompt_warnings?: string[];
+};
+
+/** Generates (or regenerates — latest wins) one publish-kit derivative. */
+export function createDerivative(
+  projectId: string,
+  pieceId: string,
+  kind: DerivativeKind,
+): Promise<GenerateDerivativeResult> {
+  return fetchJson<GenerateDerivativeResult>(
+    `/api/projects/${projectId}/pieces/${encodeURIComponent(pieceId)}/derivatives`,
+    {
+      method: "POST",
+      body: JSON.stringify({ kind }),
+    },
+  );
 }
 
 // Authentication (plan §4/§7). The session lives in the pg_session cookie;

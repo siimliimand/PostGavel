@@ -279,3 +279,22 @@ export const createDraftSchema = z.object({
   // outline row of this project with parsable sections.
   outline_id: z.uuid({ message: "outline_id must be a valid uuid" }),
 });
+
+// --- Derivatives (Phase 11) -------------------------------------------------
+
+/** Publish-kit derivative kinds. Which kinds are valid depends on the piece's
+ * format — article → meta/linkedin_post/x_thread/newsletter_blurb,
+ * video_script → youtube_package — enforced in the route (400 otherwise). */
+export const DERIVATIVE_KINDS = [
+  "meta",
+  "linkedin_post",
+  "x_thread",
+  "newsletter_blurb",
+  "youtube_package",
+] as const;
+
+export const createDerivativeSchema = z.object({
+  kind: z.enum(DERIVATIVE_KINDS, {
+    message: `kind must be one of: ${DERIVATIVE_KINDS.join(", ")}`,
+  }),
+});

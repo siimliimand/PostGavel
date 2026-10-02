@@ -187,6 +187,35 @@ export const pieces = sqliteTable(
   (t) => [index("pieces_project_id_idx").on(t.projectId)],
 );
 
+// Publish kit derivatives (Phase 11): publishing metadata + social derivatives
+// generated from a finished draft + the project brief — one cheap AI call each.
+// kind: 'meta' (meta title/description/slug/excerpt) | 'linkedin_post' |
+// 'x_thread' | 'newsletter_blurb' (plain text) | 'youtube_package' (JSON
+// titles + description). body holds the JSON string for the structured kinds,
+// plain text/markdown for the prose kinds. One row per (draft, kind): unlike
+// pieces, derivatives are cheap one-calls, so regenerate REPLACES (upsert,
+// latest wins) — hence the unique index and the upsert-touches-updated_at rule.
+// They are children of their draft (ON DELETE CASCADE — deleting the draft
+// deletes its kit), which differs from pieces' own SET NULL links by design.
+export const derivatives = sqliteTable(
+  "derivatives",
+  {
+    id: text("id").primaryKey(),
+    draftPieceId: text("draft_piece_id")
+      .notNull()
+      .references(() => pieces.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // see the kind comment above
+    body: text("body").notNull(), // JSON string (meta, youtube_package) or plain text
+    model: text("model"), // provenance: the model that produced it
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("derivatives_draft_piece_id_kind_unique").on(t.draftPieceId, t.kind),
+    index("derivatives_draft_piece_id_idx").on(t.draftPieceId),
+  ],
+);
+
 // Fixed-window rate limit counters (Phase 6). One row per
 // "{project_id}:{action}", managed entirely by db/rateLimit.ts. A plain D1
 // counter (not the beta Workers ratelimit binding) keeps local dev and prod

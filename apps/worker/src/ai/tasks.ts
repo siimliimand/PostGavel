@@ -49,6 +49,14 @@ export const TASKS: TaskDef[] = [
     promptKey: "video_script",
     defaultModel: "openai/gpt-4o-mini",
   },
+  {
+    // Phase 11: ALL five publish-kit derivative tasks share this one picker —
+    // each registry entry has its own promptKey but modelTask "derivatives".
+    key: "derivatives",
+    label: "Publish kit derivatives (meta, social, newsletter, YouTube)",
+    promptKey: "meta_package",
+    defaultModel: "openai/gpt-4o-mini",
+  },
 ];
 
 export const TASK_KEYS: readonly string[] = TASKS.map((t) => t.key);

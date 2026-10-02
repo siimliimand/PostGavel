@@ -1,6 +1,7 @@
 # PostGavel — Implementation Plan
 
-> **Status:** APPROVED & EXECUTED — Phases 0–9 are complete, deployed, and pushed.
+> **Status:** APPROVED & EXECUTED — Phases 0–10 are complete, deployed, and pushed.
+> **Revised 2026-10-02 (c):** added **Phase 11 — Publish kit** (per-draft publishing metadata + social derivatives: meta package, LinkedIn post, X thread, newsletter blurb, YouTube package — one cheap AI call each, upserted per (draft, kind)) after Phase 10; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-02 (b):** added **Phase 10 — Outline → Draft pipeline** (outlines as the human-review gate; drafts written section-by-section from an approved outline, for `article` and `video_script`) after Phase 9; §2/§3/§6/§7 updated accordingly.
 > **Revised 2026-10-02:** added **Phase 9 — Problems-first ideation** (audience problems before article ideas; generate/add/select problems, scope ideas to one) after Phase 8; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01 (b):** added **Phase 8 — Structured brief** (real DB columns for tone/audience/rules, chip-based formats UI, expanded prompt context block) after Phase 7 shipped; §3/§6/§7 updated accordingly.
@@ -163,6 +164,22 @@ pieces            (id TEXT PK,
                    sections TEXT NULL,      -- JSON [{"heading","points":[]}], outlines only
                    model TEXT NULL,         -- provenance: the model that produced it
                    created_at INTEGER)
+
+-- publish kit derivatives (Phase 11): publishing metadata + social derivatives
+-- generated from a finished draft + the project brief — one cheap AI call
+-- each. Children of their draft (ON DELETE CASCADE — deleting the draft
+-- deletes its kit; unlike pieces' own SET NULL links, this one cascades by
+-- design). body holds the JSON string for 'meta'/'youtube_package', plain
+-- text/markdown for the prose kinds. UNIQUE (draft_piece_id, kind): one row
+-- per (draft, kind) — regenerating REPLACES (upsert, latest wins), unlike
+-- pieces, because derivatives are cheap one-calls.
+derivatives       (id TEXT PK,
+                   draft_piece_id TEXT NOT NULL -> pieces.id ON DELETE CASCADE,
+                   kind TEXT,               -- 'meta' | 'linkedin_post' | 'x_thread' |
+                                            -- 'newsletter_blurb' | 'youtube_package'
+                   body TEXT,
+                   model TEXT NULL,         -- provenance
+                   created_at INTEGER, updated_at INTEGER)  -- upsert touches updated_at
 ```
 
 **Seed data (migration):** global `prompt_templates` rows for every task type, with `{{project_description}}`, `{{content_guidelines}}`, `{{content_types}}`, `{{count}}`, `{{topic_hint}}` variables — so the product works out of the box and users only *edit*, never author from scratch.
@@ -172,6 +189,8 @@ pieces            (id TEXT PK,
 **Phase 8 migrations (`0006` + `0007`):** `0006` (drizzle-kit) adds the five nullable brief columns to `projects`; `0007` (hand-written, pattern of `0003`) rewrites the "Project context" block of both global default templates to the full labeled list (`{{tone}}`, `{{audience_description}}`, `{{audience_expertise}}`, `{{guidelines_always}}`, `{{guidelines_never}}` alongside the existing variables). `projectPromptVariables()` in `src/ai/prompts.ts` is the single brief→variable map (null → `""`), shared by the prompts `/resolved` route and the ideas generate route.
 
 **Phase 10 migrations (`0010` + `0011`):** `0010` (drizzle-kit) adds the `pieces` table (see §3); `0011` (hand-written, pattern of `0007`/`0009`) seeds the four global default prompts for outlines and drafts. `problemContext()` joins `projectPromptVariables()` in `src/ai/prompts.ts` as the shared builder for the request-scoped `{{problem_context}}` variable.
+
+**Phase 11 migrations (`0012` + `0013`):** `0012` (drizzle-kit) adds the `derivatives` table (see §3, FK ON DELETE CASCADE + UNIQUE (`draft_piece_id`, `kind`)); `0013` (hand-written, 0011 pattern) seeds the five global default prompts for the publish kit (`meta_package`, `linkedin_post`, `x_thread`, `newsletter_blurb`, `youtube_package`), all sharing the 0007 context block + 0011 problem line followed by `Draft to work from:\n{{draft_markdown}}`. (`drizzle-kit` bookkeeping repair, 0009 precedent: the hand-written 0011's journal entry reuses idx 10, so the generated table migration initially came out prefixed `0011` again and clobbered `0011_snapshot.json` — restored from git, generated snapshot relocated to `0012_snapshot.json` with its own id/prevId, journal tags/idx fixed metadata-only. Schema content unchanged.)
 
 ---
 
@@ -237,7 +256,7 @@ generateCompletion({ apiKey, model, messages, json?: boolean }): Promise<string>
 | `/projects/:id/members` | Sharing | List/add/remove accounts (`email lookup`) on this project, roles owner/editor. |
 | `/projects/:id/ai-config` | **AI config** | OpenRouter API key (masked, replace-not-view), and a model picker per task type (task list rendered from a registry, so future tasks appear automatically). Includes a "Test connection" button (cheap 1-token call). |
 | `/projects/:id/prompts` | **Prompts** | All prompt templates for the project; each shows the global default (read-only reference) and an editable override; reset-to-default action; variables documented inline. |
-| `/projects/:id/content` | **Content** (Phase 10) | Outlines group (cards: title, format badge, section count, expandable structure of headings + points, **Write draft**, delete) and Drafts group (cards: title, format badge, word count, expandable markdown preview, copy-markdown button, delete). The draft button warns honestly: writing runs one model call per section and can take a minute or two. |
+| `/projects/:id/content` | **Content** (Phase 10) | Outlines group (cards: title, format badge, section count, expandable structure of headings + points, **Write draft**, delete) and Drafts group (cards: title, format badge, word count, expandable markdown preview, copy-markdown button, delete). The draft button warns honestly: writing runs one model call per section and can take a minute or two. Each draft card also carries a **Publish kit** section (Phase 11, collapsible): article drafts get **Meta package** (meta title/description/slug/excerpt as label/value rows, per-field copy) plus **LinkedIn post**, **X thread** and **Newsletter blurb** — text cards with copy + a small ↻ regenerate once generated, plain Generate buttons before; video drafts get the **YouTube package** (3 title options + description, copy buttons). One AI call per kind, honest spinner, typed error banner. |
 | `/projects/:id/ideas` | **Idea generation** | Problems section on top (AI-generated or manual audience problems; click to select, clear link to deselect — selection survives a reload) → optional topic hint + count selector → Generate (scoped to the selected problem when one is selected) → results stored and listed (title + angle, problem tag when scoped), delete, regenerate. Each idea card carries "Outline article" / "Outline video" actions (Phase 10) that create an outline and land on the Content page. |
 | `/login`, `/register` | **Auth** (Phase 7) | Email + password forms; registering with an invited (passwordless) email claims that account. After login → `/projects`. |
 
@@ -320,6 +339,14 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - UI: new **Content** page (`/projects/:id/content`, nav between Prompts and Ideas): Outlines group (format badge, section count, expandable structure, Write draft with spinner + honest "can take a minute or two" hint, delete) and Drafts group (word count, expandable markdown preview rendered via `marked` (HTML escaped before parse), copy-markdown button, delete). On a failed write the list refreshes anyway — nothing partial is stored server-side. Ideas page idea cards gain "Outline article" / "Outline video" actions that create the outline and navigate to Content.
 - **Checkpoint:** local migrate (0010+0011), outline-parser fixture (`<think>` + fence + aliases + junk rows; unparsable → typed error), API round (foreign idea 400, bad format 400, typed `InvalidKey`, drafts with non-outline id 400, resolved prompts for all four keys with `{{previous_sections}}` empty, `{{wibble}}` still warns, outline limiter 5/min proven), Chromium click-through (ideas card buttons, InvalidKey error state, outline expand, draft busy hint, markdown preview, copy, delete), remote migrate + deploy, throwaway-project smoke, live outline + article draft on the real project (user-approved), video outline title only (no video draft — cost).
 
+### Phase 11 — Publish kit (package + repurpose) *(medium)* — **added 2026-10-02**
+- Migration `0012` (drizzle-kit): new `derivatives` table — `draft_piece_id` FK → pieces **ON DELETE CASCADE** (derivatives are children of their draft; differs from pieces' own SET NULL links by design), `kind` (`'meta'|'linkedin_post'|'x_thread'|'newsletter_blurb'|'youtube_package'`), `body` (JSON string for the two structured kinds, plain text/markdown for prose), nullable `model` provenance, `created_at`/`updated_at`, UNIQUE (`draft_piece_id`, `kind`) — one row per (draft, kind); regenerate replaces (upsert, latest wins). Additive only. Snapshot-chain repair per the 0009 precedent (metadata-only — see the §3 Phase 11 migration note).
+- Migration `0013` (hand-written, 0011 pattern): seeds the five global default prompts. All share the exact 0007 context block (incl. the `- Problem to address (may be empty): {{problem_context}}` line) followed by `Draft to work from:\n{{draft_markdown}}`. `meta_package` → JSON `{"meta_title" ≤60, "meta_description" ≤155, "slug", "excerpt"}`; `linkedin_post` → hook-first post ≤ ~1,200 chars, grounded only in the draft, ≤3 hashtags; `x_thread` → 5–8 numbered tweets ≤280 chars, hook first, takeaway/CTA last; `newsletter_blurb` → 80–150 words, one CTA with the placeholder link `[read the full post]`; `youtube_package` (video) → JSON `{"titles": [3 options], "description" with chapter list from the script's segments}`.
+- Task registry (`src/tasks/registry.ts`): five entries `meta_package` / `linkedin_post` / `x_thread` / `newsletter_blurb` / `youtube_package`. All share `modelTask: "derivatives"` → AI Config gains exactly ONE new model picker (`src/ai/tasks.ts`, default `openai/gpt-4o-mini`). `jsonMode: true` for `meta_package` + `youtube_package`, false for the three prose kinds. All five share `TItem = string` (parse yields exactly the text stored in `body`) and one shared persist = upsert on (draft_piece_id, kind) touching `updated_at`. Parsers live in `src/ai/derivatives.ts` (same leniency ladder as outlines: `<think>` strip, fence strip, double-encoded unwrap, alias fields `title`→meta_title, `title_options`→titles; junk title entries dropped; prose = fence-strip + trim). `draft_markdown` joins `STAND_IN_VARS` (empty default → no unknown-variable warning on /resolved).
+- API (`src/routes/pieces.ts`): `POST /api/projects/:id/pieces/:pieceId/derivatives` `{kind}` — piece must be a `type='draft'` of this project AND the kind must be valid for its format (article → meta/linkedin_post/x_thread/newsletter_blurb; video_script → youtube_package), else 400. Flow: rate limit `<projectId>:derivatives` **10/min once per request** (Phase 10 once-only pattern) → `runGenerationCore` once with `draft_markdown` = the draft body tail-truncated to ~12,000 chars → upsert → returns the row (+ model/used_retry/warnings). `GET /api/projects/:id/pieces` nests `derivatives` on each piece ([] on outlines). No DELETE endpoint (upsert model); project DELETE needs no change — the batch already deletes pieces before projects and the cascade removes their derivatives.
+- UI: Content page draft cards gain the collapsible **Publish kit** described in §6. Copy buttons per field; regenerate ↻; busy hint "one AI call, usually a few seconds"; typed error banner as Phase 10.
+- **Checkpoint:** local migrate (0012+0013), parser fixtures (meta with `<think>`+fence+aliases → clean; youtube `{"titles"}` → clean; prose fence-strip), API round (typed `InvalidKey`, format/kind mismatches 400, unknown kind 400, GET nesting, upsert + UNIQUE proven via direct D1 writes, resolved prompts with `{{draft_markdown}}` empty + `{{wibble}}` warning), Chromium click-through (kit render, copy → clipboard, typed error, fresh vs. generated states, article vs. video kit), remote migrate + deploy, throwaway-project smoke (zero orphans incl. derivatives; real project untouched), live meta + LinkedIn post on the real project's article draft (user-approved).
+
 ---
 
 ## 8. Assumptions & open questions
@@ -335,4 +362,4 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 | 7 | No Tailwind/component library — minimal hand-rolled UI. | §6 |
 | 8 | Task registry starts with `idea_generation` only; structure supports `outline`, `draft`, `titles` etc. later. | §5 |
 
-**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 9 (problems-first ideation) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 10 (outline → draft pipeline) is implemented and deployed from this working tree, left uncommitted for PM review.
+**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 9 (problems-first ideation) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 10 (outline → draft pipeline) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 11 (publish kit) is implemented and deployed from this working tree, left uncommitted for PM review.

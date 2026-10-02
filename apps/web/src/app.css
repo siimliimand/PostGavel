@@ -810,6 +810,92 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* Publish kit (Phase 11): derivative blocks on draft cards */
+.kit-details summary {
+  color: #4f46e5;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.publish-kit {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 6px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.kit-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.kit-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.kit-kind-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.kit-regen {
+  min-width: 2.2rem;
+}
+
+.kit-meta-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.kit-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.kit-meta-row dt {
+  flex: 0 0 8.5rem;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.kit-meta-row dd {
+  flex: 1;
+  margin: 0;
+  font-size: 0.9rem;
+  overflow-wrap: break-word;
+}
+
+.kit-meta-row .btn {
+  align-self: center;
+}
+
+.kit-text {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #e3e6ea;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.kit-text-pre {
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
 .spinner {
   width: 0.9rem;
   height: 0.9rem;

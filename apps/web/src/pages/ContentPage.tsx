@@ -2,10 +2,15 @@ import { useEffect, useState } from "react";
 import { marked } from "marked";
 import {
   ApiError,
+  createDerivative,
   createDraft,
   deletePiece,
   fetchPieces,
+  type Derivative,
+  type DerivativeKind,
+  type MetaPackage,
   type Piece,
+  type YoutubePackage,
 } from "../api";
 import ProjectSubNav from "../components/ProjectSubNav";
 import { Link } from "../router";
@@ -73,6 +78,198 @@ function markdownToHtml(markdown: string): string {
   return marked.parse(escaped, { async: false, gfm: true, breaks: true });
 }
 
+// --- Publish kit (Phase 11) -------------------------------------------------
+
+/** Human labels for the derivative kinds (buttons, notes, busy text). */
+const DERIVATIVE_LABELS: Record<DerivativeKind, string> = {
+  meta: "Meta package",
+  linkedin_post: "LinkedIn post",
+  x_thread: "X thread",
+  newsletter_blurb: "Newsletter blurb",
+  youtube_package: "YouTube package",
+};
+
+/** Meta package fields in render order: key in the JSON body → row label. */
+const META_FIELDS = [
+  ["meta_title", "Meta title"],
+  ["meta_description", "Meta description"],
+  ["slug", "Slug"],
+  ["excerpt", "Excerpt"],
+] as const;
+
+/** The article draft's prose derivative kinds, in button order. */
+const ARTICLE_PROSE_KINDS = ["linkedin_post", "x_thread", "newsletter_blurb"] as const;
+
+/** JSON body of a structured derivative, or null when absent/unparsable (the
+ * raw body is shown as text in that case — model output is never fatal). */
+function parseKitBody<T>(derivative: Derivative | undefined): T | null {
+  if (!derivative) return null;
+  try {
+    return JSON.parse(derivative.body) as T;
+  } catch {
+    return null;
+  }
+}
+
+type PublishKitProps = {
+  draft: Piece;
+  /** `${pieceId}:${kind}` of the in-flight generation, if any. */
+  generating: string | null;
+  copied: string | null;
+  onGenerate: (draft: Piece, kind: DerivativeKind) => void;
+  onCopy: (key: string, text: string) => void;
+};
+
+/** The publish kit block on a draft card: meta/social/newsletter for article
+ * drafts, the YouTube package for video drafts. One AI call per kind. */
+function PublishKit({ draft, generating, copied, onGenerate, onCopy }: PublishKitProps) {
+  const byKind = new Map(draft.derivatives.map((row) => [row.kind, row]));
+  const busyKind = generating?.startsWith(`${draft.id}:`)
+    ? (generating.split(":")[1] as DerivativeKind)
+    : null;
+
+  const head = (kind: DerivativeKind, row: Derivative | undefined) => (
+    <div className="kit-block-head">
+      <span className="kit-kind-label">{DERIVATIVE_LABELS[kind]}</span>
+      {row && (
+        <span className="piece-actions">
+          <button
+            type="button"
+            className="btn btn-small btn-secondary"
+            onClick={() => onCopy(`${row.id}:all`, row.body)}
+          >
+            {copied === `${row.id}:all` ? "Copied!" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-small btn-secondary kit-regen"
+            title={`Regenerate ${DERIVATIVE_LABELS[kind]}`}
+            aria-label={`Regenerate ${DERIVATIVE_LABELS[kind]}`}
+            disabled={generating !== null}
+            onClick={() => onGenerate(draft, kind)}
+          >
+            ↻
+          </button>
+        </span>
+      )}
+    </div>
+  );
+
+  // Buttons stay honest: while any kit generation runs, the rest are disabled.
+  const generateButton = (kind: DerivativeKind) => (
+    <button
+      type="button"
+      className="btn btn-small"
+      disabled={generating !== null}
+      onClick={() => onGenerate(draft, kind)}
+    >
+      {busyKind === kind
+        ? "Generating…"
+        : byKind.has(kind)
+          ? `Regenerate ${DERIVATIVE_LABELS[kind]}`
+          : `Generate ${DERIVATIVE_LABELS[kind]}`}
+    </button>
+  );
+
+  const metaRow = byKind.get("meta");
+  const meta = parseKitBody<MetaPackage>(metaRow);
+  const youtubeRow = byKind.get("youtube_package");
+  const youtube = parseKitBody<YoutubePackage>(youtubeRow);
+
+  return (
+    <details className="default-details kit-details">
+      <summary>Publish kit</summary>
+      <div className="publish-kit">
+        {draft.format === "article" ? (
+          <>
+            <div className="kit-block">
+              {metaRow && meta ? (
+                <>
+                  {head("meta", metaRow)}
+                  <dl className="kit-meta-list">
+                    {META_FIELDS.map(([field, label]) => (
+                      <div className="kit-meta-row" key={field}>
+                        <dt>{label}</dt>
+                        <dd>{meta[field]}</dd>
+                        <button
+                          type="button"
+                          className="btn btn-small btn-secondary"
+                          onClick={() => onCopy(`${metaRow.id}:${field}`, meta[field])}
+                        >
+                          {copied === `${metaRow.id}:${field}` ? "Copied!" : "Copy"}
+                        </button>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : (
+                generateButton("meta")
+              )}
+            </div>
+            {ARTICLE_PROSE_KINDS.map((kind) => {
+              const row = byKind.get(kind);
+              return (
+                <div className="kit-block" key={kind}>
+                  {row ? (
+                    <>
+                      {head(kind, row)}
+                      <p className="kit-text">{row.body}</p>
+                    </>
+                  ) : (
+                    generateButton(kind)
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <div className="kit-block">
+            {youtubeRow && youtube ? (
+              <>
+                {head("youtube_package", youtubeRow)}
+                <dl className="kit-meta-list">
+                  {youtube.titles.map((title, index) => (
+                    <div className="kit-meta-row" key={index}>
+                      <dt>Title {index + 1}</dt>
+                      <dd>{title}</dd>
+                      <button
+                        type="button"
+                        className="btn btn-small btn-secondary"
+                        onClick={() => onCopy(`${youtubeRow.id}:title${index}`, title)}
+                      >
+                        {copied === `${youtubeRow.id}:title${index}` ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                  ))}
+                </dl>
+                <div className="kit-block-head">
+                  <span className="kit-kind-label">Description</span>
+                  <button
+                    type="button"
+                    className="btn btn-small btn-secondary"
+                    onClick={() => onCopy(`${youtubeRow.id}:description`, youtube.description)}
+                  >
+                    {copied === `${youtubeRow.id}:description` ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+                <p className="kit-text kit-text-pre">{youtube.description}</p>
+              </>
+            ) : (
+              generateButton("youtube_package")
+            )}
+          </div>
+        )}
+        {busyKind && (
+          <p className="busy-hint" role="status">
+            <span className="spinner" aria-hidden="true" /> Generating{" "}
+            {DERIVATIVE_LABELS[busyKind]} — one AI call, usually a few seconds.
+          </p>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export default function ContentPage({ id }: { id: string }) {
   const [pieces, setPieces] = useState<Piece[] | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -82,9 +279,13 @@ export default function ContentPage({ id }: { id: string }) {
   const [writeError, setWriteError] = useState<GenerateError | null>(null);
   const [writeNote, setWriteNote] = useState<string | null>(null);
 
+  /** `${pieceId}:${kind}` while a publish-kit derivative is being generated. */
+  const [generating, setGenerating] = useState<string | null>(null);
+
   const [deleting, setDeleting] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  /** Key of the last copy action (piece body or one kit field). */
   const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
@@ -155,13 +356,37 @@ export default function ContentPage({ id }: { id: string }) {
     }
   };
 
-  const copyBody = async (piece: Piece) => {
+  const copyText = async (key: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(piece.body);
-      setCopied(piece.id);
-      window.setTimeout(() => setCopied((current) => (current === piece.id ? null : current)), 2000);
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      window.setTimeout(() => setCopied((current) => (current === key ? null : current)), 2000);
     } catch {
       setCopied(null);
+    }
+  };
+
+  const copyBody = async (piece: Piece) => {
+    await copyText(`${piece.id}:body`, piece.body);
+  };
+
+  /** Generates (or regenerates) one publish-kit derivative — one AI call. */
+  const generateDerivative = async (draft: Piece, kind: DerivativeKind) => {
+    if (generating) return;
+    setGenerating(`${draft.id}:${kind}`);
+    setWriteError(null);
+    setWriteNote(null);
+    try {
+      const result = await createDerivative(id, draft.id, kind);
+      setPieces(await fetchPieces(id));
+      setWriteNote(`${DERIVATIVE_LABELS[kind]} generated with ${result.model}.`);
+    } catch (err: unknown) {
+      setWriteError(toGenerateError(err));
+      // Resync anyway — the failed call may still have replaced nothing, but
+      // the server state (upsert row, rate-limit window) is authoritative.
+      void refresh();
+    } finally {
+      setGenerating(null);
     }
   };
 
@@ -208,7 +433,8 @@ export default function ContentPage({ id }: { id: string }) {
       <h1>Content</h1>
       <p className="muted">
         Outlines are the review gate — check the structure before writing. A draft is written
-        section by section from the approved outline, grounded in the project brief.
+        section by section from the approved outline, grounded in the project brief. Every finished
+        draft carries a publish kit: publishing metadata and social derivatives, one AI call each.
       </p>
 
       {writeNote && (
@@ -337,6 +563,13 @@ export default function ContentPage({ id }: { id: string }) {
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(draft.body) }}
                   />
                 </details>
+                <PublishKit
+                  draft={draft}
+                  generating={generating}
+                  copied={copied}
+                  onGenerate={(piece, kind) => void generateDerivative(piece, kind)}
+                  onCopy={(key, text) => void copyText(key, text)}
+                />
                 <div className="idea-meta">
                   <span />
                   <span className="piece-actions">

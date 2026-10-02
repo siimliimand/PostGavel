@@ -152,7 +152,9 @@ projectRoutes.delete("/:projectId", async (c) => {
   // D1 enforces foreign keys and we don't rely on ON DELETE cascade, so child
   // rows go first - all statements in one atomic batch with the project row.
   // (ideas.problem_id is ON DELETE SET NULL, but the ideas rows are already
-  // gone by the time problems are deleted.)
+  // gone by the time problems are deleted. The one exception is derivatives
+  // (Phase 11): they cascade off their draft piece, which this batch deletes
+  // before the project - no explicit derivative delete needed or possible.)
   await db.batch([
     db.delete(projectMembers).where(eq(projectMembers.projectId, project.id)),
     db.delete(projectAiConfig).where(eq(projectAiConfig.projectId, project.id)),

@@ -26,6 +26,9 @@ const STAND_IN_VARS: Record<string, string> = {
   section_heading: "",
   section_points: "",
   previous_sections: "",
+  // Phase 11: the derivative prompts' draft variable is request-scoped (the
+  // draft body the publish kit is generated from).
+  draft_markdown: "",
 };
 
 // Garbage project ids 400 (ValidationError) before any DB lookup.

@@ -4,10 +4,13 @@ A simple AI content workspace: create **projects**, describe what each one is
 about, configure **OpenRouter** (API key + which model does which task), tune
 **every prompt**, and run the content pipeline — audience **problems** →
 long-form **article ideas** → reviewable **outlines** → full **drafts**
-(article or video script, written section by section) — all on Cloudflare.
-Status: **phases 0–10 complete** (scaffold → schema/tenancy → brief → AI config
+(article or video script, written section by section) → a **publish kit** per
+draft (meta package, LinkedIn post, X thread, newsletter blurb, YouTube
+package) — all on Cloudflare.
+Status: **phases 0–11 complete** (scaffold → schema/tenancy → brief → AI config
 → prompts → idea generation → hardening → email + password authentication →
-structured brief → problems-first ideation → outline → draft pipeline).
+structured brief → problems-first ideation → outline → draft pipeline →
+publish kit).
 See [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Stack
@@ -116,6 +119,23 @@ applied (step 3) → `ENCRYPTION_KEY` secret set (step 4). Changing
    Both outline and draft prompts always include the project brief and, when
    the idea was scoped to a problem, that problem's context.
 
+7. **Publish kit** (on every draft card, Phase 11): expand **Publish kit** on
+   a finished draft and generate repurposed outputs from it — one cheap AI
+   call each, grounded in the draft plus the project brief:
+
+   - **Article drafts**: **Meta package** (meta title ≤60, meta description
+     ≤155, slug, excerpt — label/value rows, copy per field), **LinkedIn
+     post** (hook-first, ~1,200 characters, ≤3 hashtags), **X thread** (5–8
+     numbered tweets, ≤280 characters each), **Newsletter blurb** (80–150
+     words, one `[read the full post]` call to action).
+   - **Video drafts**: **YouTube package** — 3 title options plus a
+     description with a chapter list derived from the script's segments.
+
+   Generated derivatives render as text cards with **Copy** buttons and a
+   small **↻ regenerate** button. Regenerating **replaces** the previous
+   version (one row per draft and kind — these are cheap one-calls, latest
+   wins). Deleting the draft deletes its kit.
+
 ## Authentication
 
 Accounts are **email + password** (plan §4), with server-side sessions in D1:
@@ -203,19 +223,24 @@ otherwise `404` (no existence leak) / `403`.
 | `DELETE /api/projects/:id/ideas/:ideaId` | — | — |
 | `POST /api/projects/:id/pieces/outlines` | `{ idea_id, format: "article"\|"video_script" }` — one AI call; stores an outline row (markdown body + parsed `sections`); `idea_id` must belong to this project, else 400 | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
 | `POST /api/projects/:id/pieces/drafts` | `{ outline_id }` — writes the whole draft section by section (one AI call per outline section; can take a minute or two); `outline_id` must be an outline row of this project with parsable sections, else 400; a failed section stores nothing | same typed codes as outlines |
-| `GET /api/projects/:id/pieces` | — | — (newest first; outline rows carry parsed `sections`) |
+| `GET /api/projects/:id/pieces` | — | — (newest first; outline rows carry parsed `sections`; draft rows nest their `derivatives` array — `[]` on outlines) |
 | `DELETE /api/projects/:id/pieces/:pieceId` | — | — |
+| `POST /api/projects/:id/pieces/:pieceId/derivatives` | `{ kind: "meta"\|"linkedin_post"\|"x_thread"\|"newsletter_blurb"\|"youtube_package" }` — one AI call from the draft + brief; upserts one row per (draft, kind), regenerate replaces; `pieceId` must be a **draft** of this project and the kind must fit its format (article → meta/linkedin_post/x_thread/newsletter_blurb, video_script → youtube_package), else 400 | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
 
 Rate limits (D1 fixed-window counters): per project — idea generation **5/min**
 (`POST …/ideas/generate`), problem generation **5/min** (`POST
 …/problems/generate`), outline creation **5/min** (`POST …/pieces/outlines`),
 draft writing **3/min** — counted once per draft request, not per section
-(`POST …/pieces/drafts`), AI config test **10/min** (`POST
+(`POST …/pieces/drafts`), derivative generation **10/min** (`POST
+…/pieces/:pieceId/derivatives`), AI config test **10/min** (`POST
 …/ai-config/test`); per email — login **10 per 5 min**. Exceeding them returns
 `429` with code `RateLimited` and a `Retry-After` header.
 
 Tasks and models: every generation task resolves its model per project (AI
 config page), falling back to `openai/gpt-4o-mini` — idea generation,
 problem generation, article outline, video outline, article draft (one call
-per section) and video script (one call per segment). Stored pieces keep the
-model that produced them in their `model` column.
+per section), video script (one call per segment), and the publish-kit
+derivatives: all five kinds (meta, LinkedIn post, X thread, newsletter blurb,
+YouTube package) share the single **"Publish kit derivatives"** model picker,
+since each derivative is one cheap call. Stored pieces and derivatives keep
+the model that produced them in their `model` column.

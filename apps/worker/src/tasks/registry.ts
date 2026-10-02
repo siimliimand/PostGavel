@@ -6,9 +6,10 @@
  * cannot drift between tasks (plan §5).
  *
  * Adding a future generation task: a registry entry here plus — if it needs
- * its own model picker — one entry in src/ai/tasks.ts. Since Phase 10 this is
- * six tasks: ideas, problems, two outline variants (single JSON call) and two
- * draft variants (run per outline section, see the draft entries below).
+ * its own model picker — one entry in src/ai/tasks.ts. Since Phase 11 this is
+ * eleven tasks: ideas, problems, two outline variants (single JSON call), two
+ * draft variants (run per outline section), and five publish-kit derivatives
+ * (all sharing the one "derivatives" model task).
  */
 import { and, eq, isNull } from "drizzle-orm";
 import { effectiveModel } from "../ai/effective";
@@ -18,9 +19,14 @@ import { decryptString } from "../ai/secretbox";
 import type { Db } from "../db/client";
 import { getDb } from "../db/client";
 import { enforceRateLimit } from "../db/rateLimit";
-import { articleIdeas, problems, projectAiConfig, promptTemplates, type projects } from "../db/schema";
+import { articleIdeas, derivatives, problems, projectAiConfig, promptTemplates, type projects } from "../db/schema";
 import { CodedHTTPException } from "../routes/errors";
 import type { WorkerEnv } from "../env";
+import {
+  parseDerivativeProse,
+  parseMetaPackage,
+  parseYoutubePackage,
+} from "../ai/derivatives";
 import {
   parseIdeasJson,
   STRICT_RETRY_SUFFIX as IDEAS_RETRY_SUFFIX,
@@ -46,7 +52,8 @@ export type PersistContext = {
   actorUserId: string;
   /** The resolved model — stored on generated rows for provenance. */
   model: string;
-  /** Task-specific extras passed through from the route (e.g. problem_id). */
+  /** Task-specific extras passed through from the route (e.g. problem_id,
+   * draftPieceId for the Phase 11 derivative upsert). */
   extra: Record<string, unknown>;
 };
 
@@ -143,6 +150,11 @@ export const GENERATION_TASKS: {
   video_outline: GenerationTask<ParsedOutline, typeof pieces.$inferSelect>;
   article_draft: GenerationTask<string, typeof pieces.$inferSelect>;
   video_script: GenerationTask<string, typeof pieces.$inferSelect>;
+  meta_package: GenerationTask<string, typeof derivatives.$inferSelect>;
+  linkedin_post: GenerationTask<string, typeof derivatives.$inferSelect>;
+  x_thread: GenerationTask<string, typeof derivatives.$inferSelect>;
+  newsletter_blurb: GenerationTask<string, typeof derivatives.$inferSelect>;
+  youtube_package: GenerationTask<string, typeof derivatives.$inferSelect>;
 } = {
   article_ideas: {
     key: "idea_generation",
@@ -325,7 +337,138 @@ export const GENERATION_TASKS: {
     },
     persist: async () => [],
   },
+  // Phase 11 — publish kit derivatives. One cheap call each, run from a
+  // finished draft + the project brief (vars.draft_markdown). All five share
+  // TItem = string: parse yields exactly the text stored in `body` (JSON
+  // kinds stringify their parsed object, prose kinds the cleaned text), so
+  // the route can treat every kind identically. Persist is an UPSERT on
+  // (draft_piece_id, kind) — derivatives are cheap one-calls, so a
+  // regenerate REPLACES the previous row (latest wins), unlike pieces.
+  meta_package: {
+    key: "meta_package",
+    promptKey: "meta_package",
+    modelTask: "derivatives",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "derivatives", limit: 10, windowMs: 60_000 },
+    strictRetrySuffix:
+      'Your previous reply could not be parsed. Respond with ONLY valid JSON: a single JSON object shaped {"meta_title": string, "meta_description": string, "slug": string, "excerpt": string}. No markdown fences, no commentary, nothing else.',
+    parseFailureMessage:
+      "The AI's reply could not be parsed into a meta package, even after one stricter retry. Please try again.",
+    jsonMode: true,
+    maxTokens: 800,
+    parse: (content: string) => {
+      const { item, problem } = parseMetaPackage(content);
+      return item ? { items: [JSON.stringify(item)] } : { items: [], problem };
+    },
+    persist: persistDerivative,
+  },
+  linkedin_post: {
+    key: "linkedin_post",
+    promptKey: "linkedin_post",
+    modelTask: "derivatives",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "derivatives", limit: 10, windowMs: 60_000 },
+    strictRetrySuffix:
+      "Your previous reply was empty or unusable. Respond with ONLY the LinkedIn post text: a hook-first post grounded in the draft, short paragraphs, at most 3 hashtags at the end. No commentary.",
+    parseFailureMessage:
+      "The reply came back empty even after one stricter retry. Please try generating the LinkedIn post again.",
+    jsonMode: false, // prose — response_format json_object would corrupt it
+    maxTokens: 1200,
+    parse: parseProseDerivative,
+    persist: persistDerivative,
+  },
+  x_thread: {
+    key: "x_thread",
+    promptKey: "x_thread",
+    modelTask: "derivatives",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "derivatives", limit: 10, windowMs: 60_000 },
+    strictRetrySuffix:
+      'Your previous reply was empty or unusable. Respond with ONLY the thread: 5 to 8 tweets (max 280 characters each), numbered like "1/", one tweet per block, blocks separated by a blank line. No commentary.',
+    parseFailureMessage:
+      "The reply came back empty even after one stricter retry. Please try generating the X thread again.",
+    jsonMode: false,
+    maxTokens: 1600,
+    parse: parseProseDerivative,
+    persist: persistDerivative,
+  },
+  newsletter_blurb: {
+    key: "newsletter_blurb",
+    promptKey: "newsletter_blurb",
+    modelTask: "derivatives",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "derivatives", limit: 10, windowMs: 60_000 },
+    strictRetrySuffix:
+      "Your previous reply was empty or unusable. Respond with ONLY the newsletter blurb text: 80 to 150 words with exactly one call to action pointing to [read the full post]. No commentary.",
+    parseFailureMessage:
+      "The reply came back empty even after one stricter retry. Please try generating the newsletter blurb again.",
+    jsonMode: false,
+    maxTokens: 800,
+    parse: parseProseDerivative,
+    persist: persistDerivative,
+  },
+  youtube_package: {
+    key: "youtube_package",
+    promptKey: "youtube_package",
+    modelTask: "derivatives",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "derivatives", limit: 10, windowMs: 60_000 },
+    strictRetrySuffix:
+      'Your previous reply could not be parsed. Respond with ONLY valid JSON: a single JSON object shaped {"titles": [string, string, string], "description": string}. No markdown fences, no commentary, nothing else.',
+    parseFailureMessage:
+      "The AI's reply could not be parsed into a YouTube package, even after one stricter retry. Please try again.",
+    jsonMode: true,
+    maxTokens: 1600,
+    parse: (content: string) => {
+      const { item, problem } = parseYoutubePackage(content);
+      return item ? { items: [JSON.stringify(item)] } : { items: [], problem };
+    },
+    persist: persistDerivative,
+  },
 };
+
+/** Shared parse wrapper for the prose derivative kinds (fence-strip + trim). */
+function parseProseDerivative(content: string): { items: string[]; problem?: string } {
+  const { item, problem } = parseDerivativeProse(content);
+  return item ? { items: [item] } : { items: [], problem };
+}
+
+/**
+ * Shared persist for ALL derivative kinds: upsert the ONE row for
+ * (draft_piece_id, kind) — the route passes both via `extra`. Regenerating a
+ * derivative replaces the previous row (latest wins): these are cheap
+ * one-calls, unlike pieces, so there is no history to preserve. created_at
+ * keeps the original generation time; the upsert touches updated_at.
+ */
+async function persistDerivative(
+  db: Db,
+  ctx: PersistContext,
+  items: string[],
+): Promise<typeof derivatives.$inferSelect[]> {
+  const now = Date.now();
+  const [row] = await db
+    .insert(derivatives)
+    .values({
+      id: crypto.randomUUID(),
+      draftPieceId: ctx.extra.draftPieceId as string,
+      kind: ctx.extra.kind as string,
+      body: items[0],
+      model: ctx.model,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [derivatives.draftPieceId, derivatives.kind],
+      set: { body: items[0], model: ctx.model, updatedAt: now },
+    })
+    .returning();
+  return [row];
+}
 
 export type IdeasTask = GenerationTask<ParsedIdea, typeof articleIdeas.$inferSelect>;
 export type ProblemsTask = GenerationTask<ParsedProblem, typeof problems.$inferSelect>;
