@@ -161,6 +161,32 @@ export const problems = sqliteTable("problems", {
   createdAt: integer("created_at").notNull(),
 });
 
+// Content pieces (Phase 10): outlines and drafts of the article/video
+// pipeline. An outline is the human-review gate (structured sections JSON);
+// a draft is written section-by-section from an approved outline and stored
+// as one markdown body. sections (JSON [{"heading","points":[]}]) is set on
+// outlines only. problem_id/idea_id inherit the outline's origin (ON DELETE
+// SET NULL — deleting the problem/idea keeps the piece, minus the link).
+export const pieces = sqliteTable(
+  "pieces",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    problemId: text("problem_id").references(() => problems.id, { onDelete: "set null" }),
+    ideaId: text("idea_id").references(() => articleIdeas.id, { onDelete: "set null" }),
+    type: text("type").notNull(), // 'outline' | 'draft'
+    format: text("format").notNull(), // 'article' | 'video_script'
+    title: text("title").notNull(),
+    body: text("body").notNull(), // markdown
+    sections: text("sections"), // JSON, outlines only
+    model: text("model"), // provenance: the model that produced the content
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("pieces_project_id_idx").on(t.projectId)],
+);
+
 // Fixed-window rate limit counters (Phase 6). One row per
 // "{project_id}:{action}", managed entirely by db/rateLimit.ts. A plain D1
 // counter (not the beta Workers ratelimit binding) keeps local dev and prod

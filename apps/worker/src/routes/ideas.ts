@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { problemContext } from "../ai/prompts";
 import { GENERATION_TASKS, runGeneration } from "../tasks/registry";
 import { requireProject } from "../auth/access";
 import type { AppEnv } from "../auth/actor";
@@ -12,12 +13,6 @@ import { generateIdeasSchema, ideaParams, parseBody, projectIdParams, validParam
 export const ideaRoutes = new Hono<AppEnv>();
 
 const LIST_LIMIT = 200;
-
-/** `problem_context` prompt variable for a scoped generation (Phase 9). */
-function problemContext(problem: typeof problems.$inferSelect): string {
-  const description = problem.description ? ` — ${problem.description}` : "";
-  return `Problem to address: ${problem.title}${description}. Search signals: ${problem.searchSignals ?? ""}.`;
-}
 
 // Garbage project ids 400 (ValidationError) before any DB lookup. (:ideaId is
 // validated inline on DELETE only — a `use("/…/ideas/:ideaId")` middleware

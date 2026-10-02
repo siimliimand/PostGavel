@@ -7,6 +7,7 @@ import {
 } from "react";
 import { logout as apiLogout, me as fetchMe, type AuthUser } from "./api";
 import AiConfigPage from "./pages/AiConfigPage";
+import ContentPage from "./pages/ContentPage";
 import IdeasPage from "./pages/IdeasPage";
 import LoginPage from "./pages/LoginPage";
 import ProjectBriefPage from "./pages/ProjectBriefPage";
@@ -166,6 +167,13 @@ function Routes() {
       return (
         <Screen>
           <IdeasPage id={segments[1]} />
+        </Screen>
+      );
+    }
+    if (segments.length === 3 && segments[2] === "content") {
+      return (
+        <Screen>
+          <ContentPage id={segments[1]} />
         </Screen>
       );
     }

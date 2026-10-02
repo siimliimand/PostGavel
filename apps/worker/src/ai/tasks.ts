@@ -25,6 +25,30 @@ export const TASKS: TaskDef[] = [
     promptKey: "audience_problems",
     defaultModel: "openai/gpt-4o-mini",
   },
+  {
+    key: "article_outline",
+    label: "Article outline",
+    promptKey: "article_outline",
+    defaultModel: "openai/gpt-4o-mini",
+  },
+  {
+    key: "video_outline",
+    label: "Video outline",
+    promptKey: "video_outline",
+    defaultModel: "openai/gpt-4o-mini",
+  },
+  {
+    key: "article_draft",
+    label: "Article draft (one call per section)",
+    promptKey: "article_draft",
+    defaultModel: "openai/gpt-4o-mini",
+  },
+  {
+    key: "video_script",
+    label: "Video script (one call per segment)",
+    promptKey: "video_script",
+    defaultModel: "openai/gpt-4o-mini",
+  },
 ];
 
 export const TASK_KEYS: readonly string[] = TASKS.map((t) => t.key);

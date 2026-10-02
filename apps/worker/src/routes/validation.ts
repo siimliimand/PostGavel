@@ -92,6 +92,7 @@ export function validParams<S extends z.ZodType>(schema: S): MiddlewareHandler<A
 export const projectIdParams = z.object({ projectId: z.uuid() });
 export const ideaParams = z.object({ projectId: z.uuid(), ideaId: z.uuid() });
 export const problemParams = z.object({ projectId: z.uuid(), problemId: z.uuid() });
+export const pieceParams = z.object({ projectId: z.uuid(), pieceId: z.uuid() });
 
 // --- Bodies ---------------------------------------------------------------
 
@@ -257,4 +258,24 @@ export const createProblemSchema = z.object({
     .trim()
     .max(MAX_PROBLEM_SEARCH_SIGNALS, `search_signals must be at most ${MAX_PROBLEM_SEARCH_SIGNALS} characters`)
     .optional(),
+});
+
+// --- Pieces (Phase 10) ----------------------------------------------------
+
+/** `article` → long-form markdown article; `video_script` → spoken-word script. */
+export const PIECE_FORMATS = ["article", "video_script"] as const;
+
+export const createOutlineSchema = z.object({
+  // The idea the outline is generated from; the route validates that it
+  // belongs to this project (400 ValidationError otherwise).
+  idea_id: z.uuid({ message: "idea_id must be a valid uuid" }),
+  format: z.enum(PIECE_FORMATS, {
+    message: `format must be one of: ${PIECE_FORMATS.join(", ")}`,
+  }),
+});
+
+export const createDraftSchema = z.object({
+  // The approved outline to write from; the route validates that it is an
+  // outline row of this project with parsable sections.
+  outline_id: z.uuid({ message: "outline_id must be a valid uuid" }),
 });

@@ -2,11 +2,12 @@
 
 A simple AI content workspace: create **projects**, describe what each one is
 about, configure **OpenRouter** (API key + which model does which task), tune
-**every prompt**, and generate **long-form article ideas** — starting from your
-audience's **problems** — all on Cloudflare.
-Status: **phases 0–9 complete** (scaffold → schema/tenancy → brief → AI config
+**every prompt**, and run the content pipeline — audience **problems** →
+long-form **article ideas** → reviewable **outlines** → full **drafts**
+(article or video script, written section by section) — all on Cloudflare.
+Status: **phases 0–10 complete** (scaffold → schema/tenancy → brief → AI config
 → prompts → idea generation → hardening → email + password authentication →
-structured brief → problems-first ideation).
+structured brief → problems-first ideation → outline → draft pipeline).
 See [`docs/implementation-plan.md`](docs/implementation-plan.md).
 
 ## Stack
@@ -98,6 +99,22 @@ applied (step 3) → `ENCRYPTION_KEY` secret set (step 4). Changing
 5. **Ideas** (`/projects/:id/ideas`): pick a count, optionally a topic hint,
    generate, and manage the stored ideas. Ideas generated for a selected
    problem keep a small problem tag.
+6. **Content** (`/projects/:id/content`) — the outline → draft pipeline:
+
+   1. On an idea card, pick **Outline article** or **Outline video** (one AI
+      call) — the outline lands on the Content page.
+   2. Review the outline: expand its structure (section/segment headings and
+      the points each must cover). This is the human-review gate — delete and
+      regenerate anything you don't like.
+   3. **Write draft**: the draft is written **section by section**, one model
+      call per outline section, each seeing the full outline plus what was
+      already written (for continuity). This can take a minute or two; if any
+      section fails, nothing partial is stored. The finished draft appears in
+      the Drafts group with a word count, a rendered markdown preview, and a
+      **Copy markdown** button.
+
+   Both outline and draft prompts always include the project brief and, when
+   the idea was scoped to a problem, that problem's context.
 
 ## Authentication
 
@@ -184,9 +201,21 @@ otherwise `404` (no existence leak) / `403`.
 | `POST /api/projects/:id/ideas/generate` | optional `{ topic_hint?, count?, problem_id? }` (count 1–10; `problem_id` must belong to this project, else 400 — scopes the ideas via `{{problem_context}}` and stores the link) | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
 | `GET /api/projects/:id/ideas` | — | — |
 | `DELETE /api/projects/:id/ideas/:ideaId` | — | — |
+| `POST /api/projects/:id/pieces/outlines` | `{ idea_id, format: "article"\|"video_script" }` — one AI call; stores an outline row (markdown body + parsed `sections`); `idea_id` must belong to this project, else 400 | `ValidationError`, `NotConfigured`, `DecryptFailed`, `InvalidKey`, `NoCredits`, `RateLimited`, `InvalidModel`, `ProviderError`, `NetworkError`, `UnknownResponse`, `GenerationFailed` |
+| `POST /api/projects/:id/pieces/drafts` | `{ outline_id }` — writes the whole draft section by section (one AI call per outline section; can take a minute or two); `outline_id` must be an outline row of this project with parsable sections, else 400; a failed section stores nothing | same typed codes as outlines |
+| `GET /api/projects/:id/pieces` | — | — (newest first; outline rows carry parsed `sections`) |
+| `DELETE /api/projects/:id/pieces/:pieceId` | — | — |
 
 Rate limits (D1 fixed-window counters): per project — idea generation **5/min**
 (`POST …/ideas/generate`), problem generation **5/min** (`POST
-…/problems/generate`), AI config test **10/min** (`POST
+…/problems/generate`), outline creation **5/min** (`POST …/pieces/outlines`),
+draft writing **3/min** — counted once per draft request, not per section
+(`POST …/pieces/drafts`), AI config test **10/min** (`POST
 …/ai-config/test`); per email — login **10 per 5 min**. Exceeding them returns
 `429` with code `RateLimited` and a `Retry-After` header.
+
+Tasks and models: every generation task resolves its model per project (AI
+config page), falling back to `openai/gpt-4o-mini` — idea generation,
+problem generation, article outline, video outline, article draft (one call
+per section) and video script (one call per segment). Stored pieces keep the
+model that produced them in their `model` column.

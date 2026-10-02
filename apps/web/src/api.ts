@@ -284,6 +284,71 @@ export async function deleteProblem(projectId: string, problemId: string): Promi
   });
 }
 
+// Content pieces (Phase 10): outlines (the human-review gate) and drafts
+// (written section-by-section from an approved outline).
+
+export type PieceFormat = "article" | "video_script";
+
+export type PieceSection = { heading: string; points: string[] };
+
+export type Piece = {
+  id: string;
+  problem_id: string | null;
+  idea_id: string | null;
+  type: "outline" | "draft";
+  format: PieceFormat;
+  title: string;
+  /** Markdown — the outline render, or the assembled draft. */
+  body: string;
+  /** Parsed structure (outlines only, null on drafts). */
+  sections: PieceSection[] | null;
+  /** Model that produced the content. */
+  model: string | null;
+  /** ISO timestamp. */
+  created_at: string;
+};
+
+export function fetchPieces(projectId: string): Promise<Piece[]> {
+  return fetchJson<Piece[]>(`/api/projects/${projectId}/pieces`);
+}
+
+export type GenerateOutlineInput = { idea_id: string; format: PieceFormat };
+
+export type GenerateOutlineResult = {
+  piece: Piece;
+  model: string;
+  used_retry: boolean;
+  prompt_warnings?: string[];
+};
+
+export function createOutline(
+  projectId: string,
+  input: GenerateOutlineInput,
+): Promise<GenerateOutlineResult> {
+  return fetchJson<GenerateOutlineResult>(`/api/projects/${projectId}/pieces/outlines`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export type GenerateDraftResult = { piece: Piece; model: string };
+
+/** Writes the whole draft (one model call per outline section server-side) —
+ * expect this to take a minute or two. */
+export function createDraft(projectId: string, outlineId: string): Promise<GenerateDraftResult> {
+  return fetchJson<GenerateDraftResult>(`/api/projects/${projectId}/pieces/drafts`, {
+    method: "POST",
+    body: JSON.stringify({ outline_id: outlineId }),
+  });
+}
+
+/** Deletes one piece (204). */
+export async function deletePiece(projectId: string, pieceId: string): Promise<void> {
+  await fetchJson<null>(`/api/projects/${projectId}/pieces/${encodeURIComponent(pieceId)}`, {
+    method: "DELETE",
+  });
+}
+
 // Authentication (plan §4/§7). The session lives in the pg_session cookie;
 // same-origin fetch attaches it automatically, so no token handling here.
 

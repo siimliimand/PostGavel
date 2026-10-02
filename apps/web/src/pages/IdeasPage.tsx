@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ApiError,
+  createOutline,
   createProblem,
   deleteIdea,
   deleteProblem,
@@ -9,10 +10,11 @@ import {
   generateIdeas,
   generateProblems,
   type ArticleIdea,
+  type PieceFormat,
   type Problem,
 } from "../api";
 import ProjectSubNav from "../components/ProjectSubNav";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 
 const COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 /** Fixed problem batch size for now (plan Phase 9). */
@@ -108,6 +110,11 @@ export default function IdeasPage({ id }: { id: string }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingProblem, setDeletingProblem] = useState<string | null>(null);
 
+  // Outline actions (Phase 10): two small buttons per idea card; success
+  // navigates to the Content page where the outline lands.
+  const [outlining, setOutlining] = useState<{ ideaId: string; format: PieceFormat } | null>(null);
+  const [outlineError, setOutlineError] = useState<GenerateError | null>(null);
+
   const selectedProblem = problems?.find((row) => row.id === selectedProblemId) ?? null;
 
   useEffect(() => {
@@ -123,6 +130,7 @@ export default function IdeasPage({ id }: { id: string }) {
     setProblemError(null);
     setProblemNote(null);
     setAddError(null);
+    setOutlineError(null);
     // Restore this project's problem selection after a reload.
     try {
       setSelectedProblemId(window.localStorage.getItem(selectionKey(id)));
@@ -278,6 +286,21 @@ export default function IdeasPage({ id }: { id: string }) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       selectProblem(problemId);
+    }
+  };
+
+  /** Outline one idea (article or video); the Content page hosts the result. */
+  const runOutline = async (idea: ArticleIdea, format: PieceFormat) => {
+    if (outlining) return;
+    setOutlining({ ideaId: idea.id, format });
+    setOutlineError(null);
+    try {
+      await createOutline(id, { idea_id: idea.id, format });
+      navigate(`/projects/${id}/content`);
+    } catch (err: unknown) {
+      setOutlineError(toGenerateError(err));
+    } finally {
+      setOutlining(null);
     }
   };
 
@@ -549,6 +572,17 @@ export default function IdeasPage({ id }: { id: string }) {
             {deleteError}
           </p>
         )}
+        {outlineError && (
+          <div className="error" role="alert">
+            <strong>{outlineError.message}</strong>
+            {outlineError.detail && <div className="error-detail">{outlineError.detail}</div>}
+            {outlineError.configLink && (
+              <div className="error-detail">
+                <Link href={`/projects/${id}/ai-config`}>Open the AI config</Link>
+              </div>
+            )}
+          </div>
+        )}
         {ideas.length === 0 ? (
           <p className="empty">No ideas yet — configure AI and generate your first set.</p>
         ) : (
@@ -562,14 +596,36 @@ export default function IdeasPage({ id }: { id: string }) {
                 <p className="idea-angle">{idea.angle}</p>
                 <div className="idea-meta">
                   <span>Created {new Date(idea.created_at).toLocaleDateString()}</span>
-                  <button
-                    type="button"
-                    className="btn btn-small btn-danger"
-                    disabled={deleting === idea.id}
-                    onClick={() => void remove(idea)}
-                  >
-                    {deleting === idea.id ? "Deleting…" : "Delete"}
-                  </button>
+                  <span className="piece-actions">
+                    <button
+                      type="button"
+                      className="btn btn-small btn-secondary"
+                      disabled={outlining !== null}
+                      onClick={() => void runOutline(idea, "article")}
+                    >
+                      {outlining?.ideaId === idea.id && outlining.format === "article"
+                        ? "Outlining…"
+                        : "Outline article"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-small btn-secondary"
+                      disabled={outlining !== null}
+                      onClick={() => void runOutline(idea, "video_script")}
+                    >
+                      {outlining?.ideaId === idea.id && outlining.format === "video_script"
+                        ? "Outlining…"
+                        : "Outline video"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-small btn-danger"
+                      disabled={deleting === idea.id}
+                      onClick={() => void remove(idea)}
+                    >
+                      {deleting === idea.id ? "Deleting…" : "Delete"}
+                    </button>
+                  </span>
                 </div>
               </li>
             ))}

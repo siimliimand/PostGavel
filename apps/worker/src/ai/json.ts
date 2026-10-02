@@ -46,13 +46,15 @@ export type LenientParseResult = {
   problem?: string;
 };
 
-/** Removes reasoning-model `<think>…</think>` blocks (any case, across lines). */
-function stripThinkBlocks(text: string): string {
+/** Removes reasoning-model `<think>…</think>` blocks (any case, across lines).
+ * Exported for the outline parser (src/ai/outline.ts), whose reply shape is a
+ * single object rather than an item array, so it runs its own ladder. */
+export function stripThinkBlocks(text: string): string {
   return text.replace(/<think>[\s\S]*?<\/think>/gi, "");
 }
 
 /** Strips the first ```/```json fence pair, keeping the payload inside. */
-function stripFences(text: string): string {
+export function stripFences(text: string): string {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
   return fenced ? fenced[1] : text;
 }

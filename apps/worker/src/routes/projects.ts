@@ -5,6 +5,7 @@ import type { AppEnv } from "../auth/actor";
 import { getDb } from "../db/client";
 import {
   articleIdeas,
+  pieces,
   problems,
   projectAiConfig,
   projectMembers,
@@ -157,6 +158,7 @@ projectRoutes.delete("/:projectId", async (c) => {
     db.delete(projectAiConfig).where(eq(projectAiConfig.projectId, project.id)),
     db.delete(projectModels).where(eq(projectModels.projectId, project.id)),
     db.delete(promptTemplates).where(eq(promptTemplates.projectId, project.id)),
+    db.delete(pieces).where(eq(pieces.projectId, project.id)),
     db.delete(articleIdeas).where(eq(articleIdeas.projectId, project.id)),
     db.delete(problems).where(eq(problems.projectId, project.id)),
     db.delete(projects).where(eq(projects.id, project.id)),

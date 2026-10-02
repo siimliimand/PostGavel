@@ -45,6 +45,20 @@ export function projectPromptVariables(project: {
   };
 }
 
+/**
+ * The `{{problem_context}}` variable for a generation scoped to one audience
+ * problem (Phase 9). Shared by the ideas and pieces generate routes so the
+ * wording injected into the prompts cannot drift.
+ */
+export function problemContext(problem: {
+  title: string;
+  description: string | null;
+  searchSignals: string | null;
+}): string {
+  const description = problem.description ? ` — ${problem.description}` : "";
+  return `Problem to address: ${problem.title}${description}. Search signals: ${problem.searchSignals ?? ""}.`;
+}
+
 const VARIABLE_PATTERN = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
 
 /** All `{{name}}` tokens in `body`, in order of first appearance, deduplicated. */

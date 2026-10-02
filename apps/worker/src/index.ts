@@ -8,6 +8,7 @@ import { CodedHTTPException } from "./routes/errors";
 import { ideaRoutes } from "./routes/ideas";
 import { memberRoutes } from "./routes/members";
 import { metaRoutes } from "./routes/meta";
+import { pieceRoutes } from "./routes/pieces";
 import { problemRoutes } from "./routes/problems";
 import { promptRoutes } from "./routes/prompts";
 import { projectRoutes } from "./routes/projects";
@@ -61,6 +62,7 @@ api.route("/projects", aiConfigRoutes);
 api.route("/projects", promptRoutes);
 api.route("/projects", ideaRoutes);
 api.route("/projects", problemRoutes);
+api.route("/projects", pieceRoutes);
 api.route("/meta", metaRoutes);
 
 app.route("/api", api);

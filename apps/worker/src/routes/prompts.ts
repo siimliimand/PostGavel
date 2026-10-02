@@ -12,9 +12,21 @@ export const promptRoutes = new Hono<AppEnv>();
 
 // Phase 4 stand-ins for the request-time variables; Phase 5 passes the real
 // count from the generate request and the topic hint from the form. Phase 9:
-// problem_context is request-scoped too (the selected problem), so overrides
-// referencing it resolve without an unknown-variable warning here.
-const STAND_IN_VARS: Record<string, string> = { count: "5", topic_hint: "", problem_context: "" };
+// problem_context is request-scoped too (the selected problem). Phase 10: the
+// outline/draft variables are request-scoped (the outlined idea, the section
+// being written), so overrides referencing them resolve without an
+// unknown-variable warning here.
+const STAND_IN_VARS: Record<string, string> = {
+  count: "5",
+  topic_hint: "",
+  problem_context: "",
+  idea_title: "",
+  idea_description: "",
+  outline_markdown: "",
+  section_heading: "",
+  section_points: "",
+  previous_sections: "",
+};
 
 // Garbage project ids 400 (ValidationError) before any DB lookup.
 promptRoutes.use("/:projectId", validParams(projectIdParams));

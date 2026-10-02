@@ -1,6 +1,7 @@
 # PostGavel — Implementation Plan
 
-> **Status:** APPROVED & EXECUTED — Phases 0–8 are complete, deployed, and pushed.
+> **Status:** APPROVED & EXECUTED — Phases 0–9 are complete, deployed, and pushed.
+> **Revised 2026-10-02 (b):** added **Phase 10 — Outline → Draft pipeline** (outlines as the human-review gate; drafts written section-by-section from an approved outline, for `article` and `video_script`) after Phase 9; §2/§3/§6/§7 updated accordingly.
 > **Revised 2026-10-02:** added **Phase 9 — Problems-first ideation** (audience problems before article ideas; generate/add/select problems, scope ideas to one) after Phase 8; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01 (b):** added **Phase 8 — Structured brief** (real DB columns for tone/audience/rules, chip-based formats UI, expanded prompt context block) after Phase 7 shipped; §3/§6/§7 updated accordingly.
 > **Revised 2026-10-01:** added **Phase 7 — Authentication (email + password)** at the user's request; §1/§2/§3/§4/§6/§8 updated accordingly. Phase 7 awaits the user's go-ahead.
@@ -27,7 +28,7 @@ Simpler than Postiz by intent: no social integrations, no scheduling engine, no 
 ### Out of scope (for now)
 
 - Password reset / email verification (would need an email sender — none in this project), OIDC/SSO, device/session management UI beyond logout.
-- Article *drafting* (only ideas in this iteration; the model-mapping design leaves room for it).
+- ~~Article *drafting*~~ (superseded: Phase 10 adds the outline → draft pipeline).
 - Social media integrations, scheduling, publishing, teams/roles beyond read/write, billing.
 
 ---
@@ -58,6 +59,7 @@ Cloudflare Worker
    │    ├── /api/projects/:id/ai-config
    │    ├── /api/projects/:id/prompts
    │    ├── /api/projects/:id/ideas     (generate + list + delete)
+   │    ├── /api/projects/:id/pieces    (outlines + drafts: generate/list/delete)
    │    └── /api/projects/:id/members   (share project with other accounts)
    ├── D1 binding (drizzle)
    └── Static assets (SPA)
@@ -147,6 +149,20 @@ problems          (id TEXT PK,
                    search_signals TEXT,     -- ';'-joined realistic queries (≤1000)
                    source TEXT,             -- 'ai' | 'manual'
                    created_at INTEGER)
+
+-- content pieces (Phase 10): outlines (the human-review gate) and drafts
+-- (written section-by-section from an approved outline).
+pieces            (id TEXT PK,
+                   project_id TEXT -> projects.id,
+                   problem_id TEXT NULL -> problems.id,        -- inherited from the source idea, ON DELETE SET NULL
+                   idea_id TEXT NULL -> article_ideas.id,      -- ON DELETE SET NULL
+                   type TEXT,               -- 'outline' | 'draft'
+                   format TEXT,             -- 'article' | 'video_script'
+                   title TEXT,              -- working title, ≤200
+                   body TEXT,               -- markdown (outline render or assembled draft)
+                   sections TEXT NULL,      -- JSON [{"heading","points":[]}], outlines only
+                   model TEXT NULL,         -- provenance: the model that produced it
+                   created_at INTEGER)
 ```
 
 **Seed data (migration):** global `prompt_templates` rows for every task type, with `{{project_description}}`, `{{content_guidelines}}`, `{{content_types}}`, `{{count}}`, `{{topic_hint}}` variables — so the product works out of the box and users only *edit*, never author from scratch.
@@ -154,6 +170,8 @@ problems          (id TEXT PK,
 **Phase 7 migration (`0005`):** adds nullable `users.password_hash` and the `sessions` table. Additive only — existing rows (projects, members, ideas) are untouched.
 
 **Phase 8 migrations (`0006` + `0007`):** `0006` (drizzle-kit) adds the five nullable brief columns to `projects`; `0007` (hand-written, pattern of `0003`) rewrites the "Project context" block of both global default templates to the full labeled list (`{{tone}}`, `{{audience_description}}`, `{{audience_expertise}}`, `{{guidelines_always}}`, `{{guidelines_never}}` alongside the existing variables). `projectPromptVariables()` in `src/ai/prompts.ts` is the single brief→variable map (null → `""`), shared by the prompts `/resolved` route and the ideas generate route.
+
+**Phase 10 migrations (`0010` + `0011`):** `0010` (drizzle-kit) adds the `pieces` table (see §3); `0011` (hand-written, pattern of `0007`/`0009`) seeds the four global default prompts for outlines and drafts. `problemContext()` joins `projectPromptVariables()` in `src/ai/prompts.ts` as the shared builder for the request-scoped `{{problem_context}}` variable.
 
 ---
 
@@ -219,7 +237,8 @@ generateCompletion({ apiKey, model, messages, json?: boolean }): Promise<string>
 | `/projects/:id/members` | Sharing | List/add/remove accounts (`email lookup`) on this project, roles owner/editor. |
 | `/projects/:id/ai-config` | **AI config** | OpenRouter API key (masked, replace-not-view), and a model picker per task type (task list rendered from a registry, so future tasks appear automatically). Includes a "Test connection" button (cheap 1-token call). |
 | `/projects/:id/prompts` | **Prompts** | All prompt templates for the project; each shows the global default (read-only reference) and an editable override; reset-to-default action; variables documented inline. |
-| `/projects/:id/ideas` | **Idea generation** | Problems section on top (AI-generated or manual audience problems; click to select, clear link to deselect — selection survives a reload) → optional topic hint + count selector → Generate (scoped to the selected problem when one is selected) → results stored and listed (title + angle, problem tag when scoped), delete, regenerate. |
+| `/projects/:id/content` | **Content** (Phase 10) | Outlines group (cards: title, format badge, section count, expandable structure of headings + points, **Write draft**, delete) and Drafts group (cards: title, format badge, word count, expandable markdown preview, copy-markdown button, delete). The draft button warns honestly: writing runs one model call per section and can take a minute or two. |
+| `/projects/:id/ideas` | **Idea generation** | Problems section on top (AI-generated or manual audience problems; click to select, clear link to deselect — selection survives a reload) → optional topic hint + count selector → Generate (scoped to the selected problem when one is selected) → results stored and listed (title + angle, problem tag when scoped), delete, regenerate. Each idea card carries "Outline article" / "Outline video" actions (Phase 10) that create an outline and land on the Content page. |
 | `/login`, `/register` | **Auth** (Phase 7) | Email + password forms; registering with an invited (passwordless) email claims that account. After login → `/projects`. |
 
 Navigation: minimal top bar with project switcher, the signed-in email and a Log out button (Phase 7); API 401s (`code: "Unauthorized"`) redirect the SPA to `/login`. No component library — small hand-rolled components + plain CSS (Tailwind optional; decision at scaffold time, default: **no Tailwind, keep dependencies near zero**).
@@ -293,6 +312,14 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 - UI: Ideas page opens with an **Audience problems** section — cards (title, description, search-signal chips, AI/Manual badge, delete), "Generate problems" button (fixed 5), inline manual-add form; clicking a card selects it (radio feel, survives a reload) and switches the ideas button to "Generate ideas for this problem"; ideas generated for a problem carry a small problem tag.
 - **Checkpoint:** local migrate (0008+0009), parser fixture (`<think>` + wrapper + alias keys for both tasks), API round (manual add/list/delete, 400s, typed `InvalidKey`, resolved prompts with the new line + `{{wibble}}` warning), Chromium click-through (add/select/persist/delete), remote migrate + deploy, throwaway-project smoke, live scoped generation on the real project (user-approved).
 
+### Phase 10 — Outline → Draft pipeline *(medium)* — **added 2026-10-02**
+- Migration `0010` (drizzle-kit): new `pieces` table (type `'outline'|'draft'`, format `'article'|'video_script'`, title ≤200, markdown `body`, nullable `sections` JSON `[{"heading","points":[]}]`, nullable `model` provenance, `project_id` FK, plus nullable `problem_id`/`idea_id` links inherited from the source idea — both ON DELETE SET NULL; index on `project_id`). Additive only. (Migration bookkeeping repair: `0009_snapshot.json` was a byte-copy of `0008`'s, which collides in drizzle-kit's snapshot chain — it got its own `id`/`prevId`; schema content unchanged.)
+- Migration `0011` (hand-written, 0009 pattern): seeds four global default prompts — `article_outline`, `video_outline` (JSON `{title, sections:[{heading, points[]}]}` replies), `article_draft`, `video_script` (per-section markdown replies). All share the 0007 context block plus the Phase 9 `- Problem to address (may be empty): {{problem_context}}` line; outline prompts add the idea block (`{{idea_title}}`/`{{idea_description}}`), draft prompts add `{{outline_markdown}}`, `{{section_heading}}`, `{{section_points}}` and `{{previous_sections}}`.
+- Task registry (`src/tasks/registry.ts`): four entries `article_outline` / `video_outline` (single JSON call; persisted as one row — `body` = markdown render `# title` + `## heading` + `- point` lines, `sections` = parsed JSON) and `article_draft` / `video_script` (never run through plain `runGeneration`: `jsonMode: false` — prose, not `json_object` — and the draft route applies the rate limit ONCE per request, then calls the exported `runGenerationCore` once per outline section with `skipPersist`, storing ONE combined markdown row). Outline parsing lives in `src/ai/outline.ts` (same leniency ladder as ideas/problems: `<think>` strip, fence strip, double-encoded unwrap, alias fields `name`→title, `segments`→sections, `beats`→points; junk rows dropped). `GenerationResult` now also carries the parsed `items` (the section texts). The four task keys join `src/ai/tasks.ts` → AI Config gains four model pickers (default `openai/gpt-4o-mini`).
+- API (`src/routes/pieces.ts`): `POST /api/projects/:id/pieces/outlines` `{idea_id, format}` (idea must belong to the project → 400; builds `problem_context` from the idea's problem when it has one), `POST /api/projects/:id/pieces/drafts` `{outline_id}` (must be an outline row of this project with parsable sections → 400; loops sections in order, each call seeing the full outline + the tail (~3000 chars) of already-written text; first failed section aborts with the typed error and stores nothing), `GET /api/projects/:id/pieces` (newest first, bodies included), `DELETE /api/projects/:id/pieces/:pieceId`. Rate limits: outline initiation **5/min**, draft initiation **3/min** — the draft limiter counts once per request, not per section.
+- UI: new **Content** page (`/projects/:id/content`, nav between Prompts and Ideas): Outlines group (format badge, section count, expandable structure, Write draft with spinner + honest "can take a minute or two" hint, delete) and Drafts group (word count, expandable markdown preview rendered via `marked` (HTML escaped before parse), copy-markdown button, delete). On a failed write the list refreshes anyway — nothing partial is stored server-side. Ideas page idea cards gain "Outline article" / "Outline video" actions that create the outline and navigate to Content.
+- **Checkpoint:** local migrate (0010+0011), outline-parser fixture (`<think>` + fence + aliases + junk rows; unparsable → typed error), API round (foreign idea 400, bad format 400, typed `InvalidKey`, drafts with non-outline id 400, resolved prompts for all four keys with `{{previous_sections}}` empty, `{{wibble}}` still warns, outline limiter 5/min proven), Chromium click-through (ideas card buttons, InvalidKey error state, outline expand, draft busy hint, markdown preview, copy, delete), remote migrate + deploy, throwaway-project smoke, live outline + article draft on the real project (user-approved), video outline title only (no video draft — cost).
+
 ---
 
 ## 8. Assumptions & open questions
@@ -308,4 +335,4 @@ Each phase ends deployable and demonstrable (rule 8). Estimated sizes are for or
 | 7 | No Tailwind/component library — minimal hand-rolled UI. | §6 |
 | 8 | Task registry starts with `idea_generation` only; structure supports `outline`, `draft`, `titles` etc. later. | §5 |
 
-**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 9 (problems-first ideation) is implemented and deployed from this working tree, left uncommitted for PM review.
+**Status note (2026-10-01 revision, (b)).** Phases 0–7 are implemented, deployed, and pushed. Phase 8 (structured brief, §7 above) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 9 (problems-first ideation) is implemented and deployed from this working tree, left uncommitted for PM review. Phase 10 (outline → draft pipeline) is implemented and deployed from this working tree, left uncommitted for PM review.

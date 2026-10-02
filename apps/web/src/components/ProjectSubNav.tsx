@@ -10,6 +10,7 @@ export default function ProjectSubNav({ id }: { id: string }) {
     { to: `/projects/${id}`, label: "Brief" },
     { to: `/projects/${id}/ai-config`, label: "AI config" },
     { to: `/projects/${id}/prompts`, label: "Prompts" },
+    { to: `/projects/${id}/content`, label: "Content" },
     { to: `/projects/${id}/ideas`, label: "Ideas" },
   ];
   return (

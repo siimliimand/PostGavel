@@ -5,8 +5,10 @@
  * calling, typed error mapping, prompt resolution and the one strict retry
  * cannot drift between tasks (plan §5).
  *
- * Adding a future generation task ("outline", "draft", …): a registry entry
- * here plus — if it needs its own model picker — one entry in src/ai/tasks.ts.
+ * Adding a future generation task: a registry entry here plus — if it needs
+ * its own model picker — one entry in src/ai/tasks.ts. Since Phase 10 this is
+ * six tasks: ideas, problems, two outline variants (single JSON call) and two
+ * draft variants (run per outline section, see the draft entries below).
  */
 import { and, eq, isNull } from "drizzle-orm";
 import { effectiveModel } from "../ai/effective";
@@ -25,6 +27,13 @@ import {
   type ParsedIdea,
 } from "../ai/ideas";
 import {
+  parseOutlineJson,
+  outlineToMarkdown,
+  STRICT_RETRY_SUFFIX as OUTLINE_RETRY_SUFFIX,
+  type ParsedOutline,
+} from "../ai/outline";
+import { pieces } from "../db/schema";
+import {
   parseProblemsJson,
   STRICT_RETRY_SUFFIX as PROBLEMS_RETRY_SUFFIX,
   type ParsedProblem,
@@ -35,6 +44,8 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type PersistContext = {
   project: ProjectRow;
   actorUserId: string;
+  /** The resolved model — stored on generated rows for provenance. */
+  model: string;
   /** Task-specific extras passed through from the route (e.g. problem_id). */
   extra: Record<string, unknown>;
 };
@@ -57,6 +68,11 @@ export type GenerationTask<TItem, TRow> = {
   strictRetrySuffix: string;
   /** 502 GenerationFailed message when even the retry cannot be parsed. */
   parseFailureMessage: string;
+  /** Request `response_format: json_object`; drafts write raw markdown. */
+  jsonMode: boolean;
+  /** Fixed completion budget when the count-derived one is the wrong shape
+   * (one outline/section has a known output size, count is meaningless). */
+  maxTokens?: number;
   parse(content: string, count: number): { items: TItem[]; problem?: string };
   /** One atomic multi-row INSERT: all rows land or none do. */
   persist(db: Db, ctx: PersistContext, items: TItem[]): Promise<TRow[]>;
@@ -69,10 +85,15 @@ export type RunGenerationParams = {
   vars?: Record<string, string>;
   /** Passed through to persist() (e.g. the scoped problem_id). */
   extra?: Record<string, unknown>;
+  /** Skip the final persist — the per-section draft loop stores ONE combined
+   * row after the last section instead. Rows then come back []. */
+  skipPersist?: boolean;
 };
 
-export type GenerationResult<TRow> = {
+export type GenerationResult<TItem, TRow> = {
   rows: TRow[];
+  /** The parsed task items (the section texts for a per-section draft call). */
+  items: TItem[];
   model: string;
   /** True when the reply only parsed after the one stricter retry. */
   usedRetry: boolean;
@@ -118,6 +139,10 @@ async function resolvePromptBody(db: Db, projectId: string, key: string): Promis
 export const GENERATION_TASKS: {
   article_ideas: GenerationTask<ParsedIdea, typeof articleIdeas.$inferSelect>;
   audience_problems: GenerationTask<ParsedProblem, typeof problems.$inferSelect>;
+  article_outline: GenerationTask<ParsedOutline, typeof pieces.$inferSelect>;
+  video_outline: GenerationTask<ParsedOutline, typeof pieces.$inferSelect>;
+  article_draft: GenerationTask<string, typeof pieces.$inferSelect>;
+  video_script: GenerationTask<string, typeof pieces.$inferSelect>;
 } = {
   article_ideas: {
     key: "idea_generation",
@@ -129,6 +154,7 @@ export const GENERATION_TASKS: {
     strictRetrySuffix: IDEAS_RETRY_SUFFIX,
     parseFailureMessage:
       "The AI's reply could not be parsed into article ideas, even after one stricter retry. Please try generating again.",
+    jsonMode: true,
     parse: (content: string, count: number) => {
       const { ideas, problem } = parseIdeasJson(content, count);
       return { items: ideas, problem };
@@ -158,6 +184,7 @@ export const GENERATION_TASKS: {
     strictRetrySuffix: PROBLEMS_RETRY_SUFFIX,
     parseFailureMessage:
       "The AI's reply could not be parsed into problems, even after one stricter retry. Please try generating again.",
+    jsonMode: true,
     parse: (content: string, count: number) => {
       const { problems: parsed, problem } = parseProblemsJson(content, count);
       return { items: parsed, problem };
@@ -181,6 +208,123 @@ export const GENERATION_TASKS: {
       return rows;
     },
   },
+  // Phase 10 — outlines. One call, one row: the reply is the JSON outline,
+  // the stored body is its markdown render and `sections` keeps the parsed
+  // structure for the Content page (and the draft loop).
+  article_outline: {
+    key: "article_outline",
+    promptKey: "article_outline",
+    modelTask: "article_outline",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "pieces_outline", limit: 5, windowMs: 60_000 },
+    strictRetrySuffix: OUTLINE_RETRY_SUFFIX,
+    parseFailureMessage:
+      "The AI's reply could not be parsed into an outline, even after one stricter retry. Please try again.",
+    jsonMode: true,
+    // One outline JSON (up to 9 sections x 4 points) needs more room than the
+    // count-derived budget for count=1.
+    maxTokens: 3000,
+    parse: (content: string) => {
+      const { outline, problem } = parseOutlineJson(content);
+      return outline ? { items: [outline] } : { items: [], problem };
+    },
+    persist: async (db: Db, ctx: PersistContext, items: ParsedOutline[]) => {
+      const outline = items[0];
+      const row: typeof pieces.$inferSelect = {
+        id: crypto.randomUUID(),
+        projectId: ctx.project.id,
+        problemId: (ctx.extra.problemId as string | null | undefined) ?? null,
+        ideaId: (ctx.extra.ideaId as string | null | undefined) ?? null,
+        type: "outline",
+        format: (ctx.extra.format as string) ?? "article",
+        title: outline.title,
+        body: outlineToMarkdown(outline),
+        sections: JSON.stringify(outline.sections),
+        model: ctx.model,
+        createdAt: Date.now(),
+      };
+      await db.insert(pieces).values(row);
+      return [row];
+    },
+  },
+  video_outline: {
+    key: "video_outline",
+    promptKey: "video_outline",
+    modelTask: "video_outline",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "pieces_outline", limit: 5, windowMs: 60_000 },
+    strictRetrySuffix: OUTLINE_RETRY_SUFFIX,
+    parseFailureMessage:
+      "The AI's reply could not be parsed into an outline, even after one stricter retry. Please try again.",
+    jsonMode: true,
+    maxTokens: 3000,
+    parse: (content: string) => {
+      const { outline, problem } = parseOutlineJson(content);
+      return outline ? { items: [outline] } : { items: [], problem };
+    },
+    persist: async (db: Db, ctx: PersistContext, items: ParsedOutline[]) => {
+      const outline = items[0];
+      const row: typeof pieces.$inferSelect = {
+        id: crypto.randomUUID(),
+        projectId: ctx.project.id,
+        problemId: (ctx.extra.problemId as string | null | undefined) ?? null,
+        ideaId: (ctx.extra.ideaId as string | null | undefined) ?? null,
+        type: "outline",
+        format: (ctx.extra.format as string) ?? "video_script",
+        title: outline.title,
+        body: outlineToMarkdown(outline),
+        sections: JSON.stringify(outline.sections),
+        model: ctx.model,
+        createdAt: Date.now(),
+      };
+      await db.insert(pieces).values(row);
+      return [row];
+    },
+  },
+  // Phase 10 — drafts. These tasks are NEVER run through plain runGeneration:
+  // the draft route enforces the (stricter) pieces_draft rate limit once per
+  // request and then calls runGenerationCore once per outline section with
+  // skipPersist, storing one combined markdown row at the end.
+  article_draft: {
+    key: "article_draft",
+    promptKey: "article_draft",
+    modelTask: "article_draft",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "pieces_draft", limit: 3, windowMs: 60_000 },
+    strictRetrySuffix:
+      "Your previous reply was empty or unusable. Respond with ONLY the markdown for the requested section, starting with its exact heading as a markdown H2. No commentary.",
+    parseFailureMessage:
+      "A section came back empty even after one stricter retry. Please try writing the draft again.",
+    jsonMode: false, // prose, not JSON — response_format json_object would corrupt it
+    maxTokens: 2000,
+    parse: (content: string) => {
+      const text = content.trim();
+      return text ? { items: [text] } : { items: [], problem: "The section came back empty." };
+    },
+    persist: async () => [], // never persisted per section — see the task comment
+  },
+  video_script: {
+    key: "video_script",
+    promptKey: "video_script",
+    modelTask: "video_script",
+    defaultCount: 1,
+    maxCount: 1,
+    rateLimit: { action: "pieces_draft", limit: 3, windowMs: 60_000 },
+    strictRetrySuffix:
+      "Your previous reply was empty or unusable. Respond with ONLY the markdown for the requested segment, starting with its exact heading as a markdown H2. No commentary.",
+    parseFailureMessage:
+      "A segment came back empty even after one stricter retry. Please try writing the script again.",
+    jsonMode: false,
+    maxTokens: 2000,
+    parse: (content: string) => {
+      const text = content.trim();
+      return text ? { items: [text] } : { items: [], problem: "The segment came back empty." };
+    },
+    persist: async () => [],
+  },
 };
 
 export type IdeasTask = GenerationTask<ParsedIdea, typeof articleIdeas.$inferSelect>;
@@ -198,7 +342,7 @@ export async function runGeneration<TItem, TRow>(
   actorUserId: string,
   task: GenerationTask<TItem, TRow>,
   params: RunGenerationParams = {},
-): Promise<GenerationResult<TRow>> {
+): Promise<GenerationResult<TItem, TRow>> {
   // Cheap rejection BEFORE any config read / key decrypt / provider call.
   await enforceRateLimit(
     getDb(env),
@@ -206,7 +350,22 @@ export async function runGeneration<TItem, TRow>(
     task.rateLimit.limit,
     task.rateLimit.windowMs,
   );
+  return runGenerationCore(env, project, actorUserId, task, params);
+}
 
+/**
+ * runGeneration without the rate limit: the shared key decrypt → model +
+ * prompt resolution → provider call → parse/retry → persist pipeline. Exported
+ * for the Phase 10 draft flow, which applies its limiter ONCE per request and
+ * then calls this once per outline section.
+ */
+export async function runGenerationCore<TItem, TRow>(
+  env: WorkerEnv,
+  project: ProjectRow,
+  actorUserId: string,
+  task: GenerationTask<TItem, TRow>,
+  params: RunGenerationParams = {},
+): Promise<GenerationResult<TItem, TRow>> {
   const count = params.count ?? task.defaultCount;
   const db = getDb(env);
 
@@ -264,8 +423,8 @@ export async function runGeneration<TItem, TRow>(
           { role: "system", content: system.text },
           { role: "user", content: userText },
         ],
-        json: true,
-        maxTokens: generateMaxTokens(count),
+        json: task.jsonMode,
+        maxTokens: task.maxTokens ?? generateMaxTokens(count),
       });
     } catch (err) {
       if (err instanceof OpenRouterError) {
@@ -292,8 +451,16 @@ export async function runGeneration<TItem, TRow>(
     }
   }
 
-  // One atomic multi-row INSERT: all rows land or none do.
-  const rows = await task.persist(db, { project, actorUserId, extra: params.extra ?? {} }, parsed.items);
+  // One atomic multi-row INSERT: all rows land or none do. Skipped for
+  // per-section draft calls (params.skipPersist) — the draft route stores one
+  // combined row after the last section lands.
+  const rows = params.skipPersist
+    ? []
+    : await task.persist(
+        db,
+        { project, actorUserId, model, extra: params.extra ?? {} },
+        parsed.items,
+      );
 
-  return { rows, model, usedRetry, warnings };
+  return { rows, items: parsed.items, model, usedRetry, warnings };
 }
